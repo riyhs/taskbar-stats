@@ -1,0 +1,126 @@
+# Taskbar Stats — Agent Guide
+
+## Scope
+
+This repository contains a native Windows taskbar system monitor written in
+Rust. It uses Win32, Direct2D, DirectWrite, DXGI, PDH, NVML, and storage IOCTLs.
+The application runs as a normal user process with no service, kernel driver,
+process injection, or administrator requirement.
+
+Read [DESIGN.md](DESIGN.md) before changing the strip or hover panel. Read
+[ARCHITECTURE.md](ARCHITECTURE.md) before changing windowing, placement, or
+sampling.
+
+## Build
+
+Stop the running executable first. It locks the output binary.
+
+```bat
+taskkill /F /IM taskbar-stats.exe
+scripts\build.bat --release
+```
+
+From Git Bash or MSYS, escape the taskkill switches:
+
+```bash
+taskkill //F //IM taskbar-stats.exe
+cmd //c 'scripts\build.bat --release'
+```
+
+`scripts\build.bat` locates Visual Studio with `vswhere`, loads `vcvars64`, and
+uses the project-local `.toolchain` SDK/build tools when present. A plain
+`cargo build` may fail to link on machines where the Git `link.exe` shadows the
+MSVC linker or the Windows SDK import libraries are not installed.
+
+Output:
+
+- `target\debug\taskbar-stats.exe`
+- `target\release\taskbar-stats.exe`
+
+## Run and inspect
+
+```bat
+target\release\taskbar-stats.exe
+```
+
+Runtime files:
+
+- Configuration: `%APPDATA%\TaskbarStats\config.toml`
+- Log: `%APPDATA%\TaskbarStats\taskbar-stats.log`
+
+The app exits through the strip context menu: right-click the strip and choose
+**Exit**. Only one instance runs per user session.
+
+## Source map
+
+| Path | Responsibility |
+| --- | --- |
+| `src/main.rs` | Process setup: logging, panic hook, per-monitor DPI, COM |
+| `src/app.rs` | Windows, message loop, timers, hover/pin behavior, rendering orchestration |
+| `src/taskbar.rs` | Find `Shell_TrayWnd`, attach the strip, place it around the tray |
+| `src/render.rs` | Direct2D/DirectWrite renderer, DIB, layered-window presentation |
+| `src/ui.rs` | Strip and panel composition, layout constants, palette, text formatting |
+| `src/metrics.rs` | Sampling loop and snapshot data |
+| `src/gpu.rs` | DXGI adapter enumeration, GPU load and temperature providers |
+| `src/disk.rs` | System-volume disk temperature through storage IOCTLs |
+| `src/config.rs` | TOML config load, defaults, validation, legacy migration |
+| `src/logging.rs` | Append-only runtime log |
+| `build.rs` | Embeds the application manifest |
+| `scripts/build.bat` | Visual Studio/SDK bootstrap and Cargo invocation |
+
+## Invariants
+
+1. Keep the strip inside the taskbar. It is a layered child of
+   `Shell_TrayWnd`; do not replace it with a floating top-level window.
+2. Keep the detail panel above the taskbar on a bottom taskbar and inside the
+   monitor work area. It must never push or overlay content below the taskbar.
+3. Do not introduce a service, kernel driver, DLL injection, or elevation
+   requirement. All current sensors are user-mode.
+4. Never fabricate a sensor value. Missing CPU, GPU, memory, or disk temperature
+   must remain `None` and render as `--` or `--°`.
+5. Keep sampling off the UI critical path where practical. The current design
+   samples on the UI thread on a timer; new blocking work should not stall the
+   message loop.
+6. Preserve the single-instance mutex behavior and Explorer-restart recovery.
+7. Keep config backward compatible. New fields need serde defaults and
+   validation.
+8. Keep the strip width deterministic from the configured widgets and GPU
+   count so placement remains stable.
+
+## UI rules
+
+- Follow the tokens and layout values in `DESIGN.md` instead of adding one-off
+  colors or font sizes.
+- Normal values are neutral. Reserve warning colors for high utilization, hot
+  temperatures, and full disks; reserve accent color for progress fills and
+  live state.
+- Use `Segoe UI`. Labels and secondary text are normal weight; primary values
+  are semibold.
+- Use 9 px labels and temperatures, 17 px strip values, and 24 px panel values
+  at 96 DPI.
+- Keep the strip at a 4 px inset, 12 px outer radius, 62 px cells, and 10 px
+  inter-cell gaps unless the documented composition changes.
+- Do not animate high-frequency updates. The current interface uses instant
+  state changes with a hover delay and a short hide delay.
+- Verify both dark and light palettes, plus `mem_mode`/`disk_mode` in both
+  `gb` and `percent` modes.
+
+## Verification
+
+Before calling a change complete:
+
+1. Build with `scripts\build.bat --release`; fix all errors and warnings.
+2. Confirm the log contains a successful `strip placed:` line.
+3. Capture the strip and the hover panel at 100% scaling.
+4. Check dark and light themes.
+5. Check multi-GPU layout when more than one adapter is present.
+6. Check `gb` and `percent` display modes.
+7. Confirm hover show, leave-hide, click pin, and right-click menu behavior.
+8. Remove temporary screenshots, scripts, and logs from the repository root.
+
+## Git hygiene
+
+- `target/`, `.toolchain/`, and `*.log` are ignored.
+- Do not commit build products, local toolchain extracts, runtime logs, or
+  temporary screenshots.
+- Keep commits focused; do not mix unrelated refactors with UI or sensor work.
