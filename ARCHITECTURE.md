@@ -76,7 +76,8 @@ contributes one cell per physical adapter.
 
 Popup placement:
 
-- Width 400 DIP, height 272 DIP, scaled by taskbar DPI.
+- Width 400 DIP; height 272 DIP for Overview and 344 DIP for Settings, scaled by
+  taskbar DPI.
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
   below a top taskbar.
@@ -95,14 +96,18 @@ Each of the strip and popup owns a `Renderer`:
 6. `EndDraw`, then present with `UpdateLayeredWindow`.
 
 The UI works in DIPs. `app.rs` converts pixel dimensions back to DIPs before
-calling `ui::draw_strip`/`ui::draw_popup`, so layout constants remain stable
-across DPI scales.
+calling `ui::draw_strip`/`ui::draw_panel`, and converts popup mouse coordinates
+back to DIPs before hit testing, so layout constants remain stable across DPI
+scales.
 
 UI composition lives in `src/ui.rs`:
 
 - `strip_width_dip` and `strip_cell_count` calculate the strip width.
 - `draw_strip` builds cells and draws labels, temperatures, values, and bars.
-- `draw_panel` draws the header, four cards, CPU core bars, and GPU rows.
+- `draw_panel` draws the tabbed header and dispatches to the overview cards or
+  the settings form.
+- `draw_settings`, `action_at`, and `settings_rect` share one fixed control
+  geometry for drawing and hit testing.
 - `palette` supplies dark/light tokens; `palette` and threshold helpers are the
   only places that decide semantic colors.
 - `src/render.rs` provides weighted text, rounded fills/strokes, circles, and
@@ -127,11 +132,35 @@ Strip input:
 
 Popup input:
 
-- Mouse movement cancels a pending hide.
-- Mouse leave starts a hide timer unless pinned.
-- Left click pins or closes.
+- Mouse movement cancels a pending hide and updates the hovered control.
+- Mouse leave clears hover and starts a hide timer unless pinned.
+- Left click resolves `PanelAction` through `ui::action_at`.
+  - Tab clicks switch the panel and pin it.
+  - Settings controls mutate the config, save it, and apply immediately.
+  - `Done` closes the settings surface.
+  - Empty settings space is intentionally inert.
+  - Empty overview space pins or closes the panel using the original behavior.
 - Right click closes.
 - The popup never activates.
+
+## Settings flow
+
+The Settings tab is a two-column control surface rendered inside the same
+popup. The panel height changes from 272 to 344 DIP when it opens.
+
+1. A click arrives at the popup in physical pixels.
+2. `App::panel_point` converts the point to DIPs.
+3. `ui::action_at` maps the point to a `PanelAction` using the same geometry as
+   the renderer.
+4. `App::handle_panel_action` updates the in-memory config.
+5. `Config::validate` normalizes the result.
+6. `Config::save` writes the TOML file.
+7. Theme refresh, strip placement, update timer, strip redraw, and popup redraw
+   run as needed. Layout-affecting changes re-center the popup.
+
+Settings include position, offset, theme, accent, memory/disk display mode,
+refresh interval, hover delay, visible widgets, reset defaults, and Done. The
+config file is an implementation detail; manual editing is not required.
 
 `TaskbarCreated` triggers reattachment after Explorer restarts. Display, DPI,
 theme, and settings changes trigger re-placement and redraw.
@@ -206,7 +235,8 @@ Validation:
   default.
 
 `Reload config` re-reads the file, re-validates it, repositions the strip if the
-widget/GPU count changes, and redraws.
+widget/GPU count changes, and redraws. The normal configuration path is the
+Settings tab, which writes the file automatically after every change.
 
 ## Logging
 

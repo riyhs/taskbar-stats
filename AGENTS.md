@@ -56,14 +56,14 @@ The app exits through the strip context menu: right-click the strip and choose
 | Path | Responsibility |
 | --- | --- |
 | `src/main.rs` | Process setup: logging, panic hook, per-monitor DPI, COM |
-| `src/app.rs` | Windows, message loop, timers, hover/pin behavior, rendering orchestration |
+| `src/app.rs` | Windows, message loop, timers, hover/pin behavior, settings actions, rendering orchestration |
 | `src/taskbar.rs` | Find `Shell_TrayWnd`, attach the strip, place it around the tray |
 | `src/render.rs` | Direct2D/DirectWrite renderer, DIB, layered-window presentation |
-| `src/ui.rs` | Strip and panel composition, layout constants, palette, text formatting |
+| `src/ui.rs` | Strip and tabbed panel composition, settings controls/hit testing, palette, text formatting |
 | `src/metrics.rs` | Sampling loop and snapshot data |
 | `src/gpu.rs` | DXGI adapter enumeration, GPU load and temperature providers |
 | `src/disk.rs` | System-volume disk temperature through storage IOCTLs |
-| `src/config.rs` | TOML config load, defaults, validation, legacy migration |
+| `src/config.rs` | TOML config load/save, defaults, validation, legacy migration |
 | `src/logging.rs` | Append-only runtime log |
 | `build.rs` | Embeds the application manifest |
 | `scripts/build.bat` | Visual Studio/SDK bootstrap and Cargo invocation |
@@ -86,6 +86,9 @@ The app exits through the strip context menu: right-click the strip and choose
    validation.
 8. Keep the strip width deterministic from the configured widgets and GPU
    count so placement remains stable.
+9. The Settings tab is the supported configuration path. Every control change
+   must validate, save, and apply immediately; do not reintroduce a
+   manual-edit-only workflow.
 
 ## UI rules
 
@@ -104,6 +107,11 @@ The app exits through the strip context menu: right-click the strip and choose
   state changes with a hover delay and a short hide delay.
 - Verify both dark and light palettes, plus `mem_mode`/`disk_mode` in both
   `gb` and `percent` modes.
+- Settings controls use the 24 px chip geometry, 6 px radius, card fill,
+  accent selected border, and primary semibold selected text.
+- Keep the Settings panel at 400 × 344 DIP and the Overview panel at 400 × 272
+  DIP unless both layout and hit-testing constants are updated together.
+- Convert popup mouse coordinates from pixels to DIPs before hit testing.
 
 ## Verification
 
@@ -116,7 +124,12 @@ Before calling a change complete:
 5. Check multi-GPU layout when more than one adapter is present.
 6. Check `gb` and `percent` display modes.
 7. Confirm hover show, leave-hide, click pin, and right-click menu behavior.
-8. Remove temporary screenshots, scripts, and logs from the repository root.
+8. Open Settings from the hover tab and from the right-click menu.
+9. Exercise every settings control: position, offset, theme, accent, memory
+   mode, disk mode, refresh, hover delay, widget toggles, reset, and Done.
+10. Confirm settings survive closing/reopening the panel and that the strip and
+    panel update immediately.
+11. Remove temporary screenshots, scripts, and logs from the repository root.
 
 ## Git hygiene
 

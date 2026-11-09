@@ -6,6 +6,8 @@ The panel floats above the taskbar, so it never pushes content into the
 desktop below. See [DESIGN.md](DESIGN.md) for the visual system and
 [ARCHITECTURE.md](ARCHITECTURE.md) for the runtime design.
 
+Current version: `v0.1.0`.
+
 ## Build
 
 Requirements:
@@ -45,14 +47,19 @@ a shortcut in the Startup apps list. It does not install a service or a driver.
 
 ## Configuration
 
-Settings are stored in:
+Settings are managed from the hover panel. Hover the strip, open the
+**Settings** tab, and change values in place. Every change applies immediately
+and is saved automatically; no manual file editing is required.
+
+The settings are persisted in:
 
 ```text
 %APPDATA%\TaskbarStats\config.toml
 ```
 
-The file is created on first launch. Right-click the strip and choose
-**Open config** to edit it, then choose **Reload config** to apply changes.
+The file is created on first launch and is managed by the app. The settings tab
+includes position, offset, theme, accent color, memory/disk display mode,
+refresh interval, hover delay, visible widgets, and a reset action.
 
 ```toml
 position = "right"
@@ -87,8 +94,10 @@ disk_mode = "gb"
 ## Behavior
 
 - Hover the strip to show the detail panel.
-- Click the strip or the panel to pin the panel; click again to close it.
-- Right-click the strip for **Reload config**, **Open config**, and **Exit**.
+- Use the **Overview** and **Settings** tabs in the panel.
+- Settings apply live to the strip and panel and save automatically.
+- Click **Done** in Settings (or click the strip) to close the panel.
+- Right-click the strip for **Settings**, **Reload config**, and **Exit**.
 - The strip reattaches after Explorer restarts.
 - The app uses only user-mode APIs and does not require administrator rights.
 

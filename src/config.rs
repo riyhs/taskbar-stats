@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -59,6 +59,12 @@ impl Config {
         }
         cfg.validate();
         (cfg, path)
+    }
+
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let body = toml::to_string_pretty(self)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+        std::fs::write(path, body)
     }
 
     pub fn validate(&mut self) {

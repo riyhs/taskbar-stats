@@ -62,7 +62,9 @@ secondary text under normal conditions and warning/bad when hot.
 
 | Token | Value |
 | --- | --- |
-| Panel size | 400 × 272 DIP |
+| Panel width | 400 DIP |
+| Overview height | 272 DIP |
+| Settings height | 344 DIP |
 | Outer radius | 18 px |
 | Border | 1 px |
 | Header height | 44 px |
@@ -75,7 +77,7 @@ secondary text under normal conditions and warning/bad when hot.
 Layout:
 
 ```text
-SYSTEM                         ● LIVE   UP 7h 38m
+Overview   Settings             ● LIVE   UP 7h 38m
 
 CPU                         MEMORY
 53%                         10.9G
@@ -101,8 +103,11 @@ Use `Segoe UI` through DirectWrite.
 | Strip label | 9.0 | 400 |
 | Strip temperature | 9.0 | 400 |
 | Strip value | 17.0 | 600 |
-| Panel header label | 9.5 | 400 |
+| Panel tab | 9.5 | 400/600 selected |
 | Panel live state | 8.5 | 400 |
+| Settings group label | 9.0 | 400 |
+| Settings control | 9.0 | 400/600 selected |
+| Settings footer | 8.5 | 400 |
 | Panel uptime | 9.0 | 400 |
 | Card label | 9.0 | 400 |
 | Card value | 24.0 | 600 |
@@ -190,7 +195,10 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 
 ### Panel header
 
-- `SYSTEM` on the leading edge, muted.
+- `Overview` and `Settings` tabs on the leading edge.
+- The selected tab uses primary text, a subtle card fill, and a 2 px accent
+  underline. Hovering an unselected tab applies the same card fill and primary
+  text.
 - `LIVE` with a 2 px good-colored dot on the trailing edge.
 - `UP <duration>` right-aligned, secondary.
 - No divider; the 44 px header band supplies separation.
@@ -207,6 +215,32 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
   and a 2 px mini bar. If there are multiple adapters, a footer summarizes the
   count and highest available temperature.
 
+### Settings tab
+
+The settings surface is a two-column form with a 10 px gap between columns. The
+panel grows to 344 px while Settings is active.
+
+| Row | Left column | Right column |
+| --- | --- | --- |
+| 1 | Position: Left / Right | Theme: System / Dark / Light |
+| 2 | Memory: GB / % | Disk: GB / % |
+| 3 | Refresh: 0.5s / 1s / 2s | Hover delay: 0 / 150 / 220 / 400 ms |
+| 4 | Offset: − / value / + | Accent: six swatches |
+| 5 | Widgets: CPU / GPU / MEM / DISK | |
+| Footer | Done | Reset defaults |
+
+- Group labels are muted 9 px uppercase.
+- Controls are 24 px high with a 6 px radius.
+- Unselected controls use the track fill, border, and secondary text.
+- Selected controls use a card fill, accent border, and primary semibold text.
+- Hovered controls use the card fill, accent border, and primary text.
+- Offset changes by 2 DIP per press and is clamped to −400…400.
+- Accent swatches are 20 px; the selected swatch gets a 1 px primary ring,
+  hovered swatches get an accent ring.
+- Every change applies immediately and writes the config file.
+- `Done` closes the panel; clicks between controls do not close Settings.
+- `Reset defaults` restores the default config and updates the UI immediately.
+
 ### Missing data
 
 - Strip temperature: `--°`.
@@ -221,8 +255,11 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 - Panel remains while the pointer is over the strip or panel.
 - Leaving both starts a 260 ms hide timer.
 - Clicking the strip pins the panel; clicking again closes it.
-- Clicking the panel pins it; clicking a pinned panel closes it.
-- Right-clicking the strip opens `Reload config`, `Open config`, and `Exit`.
+- Clicking the Settings tab pins the panel.
+- Settings controls apply changes immediately and save automatically.
+- Clicking between settings controls keeps the settings surface open.
+- `Done` closes the settings surface; clicking the strip also closes it.
+- Right-clicking the strip opens `Settings`, `Reload config`, and `Exit`.
 - The panel never takes focus (`WS_EX_NOACTIVATE`).
 - Current motion: none. State changes are instantaneous. Do not add entrance
   animations to the one-second data refresh; if panel motion is added later,
@@ -237,8 +274,8 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 - Text contrast must be checked in both themes. Muted labels are intentionally
   quieter than values but must remain readable at 9 px.
 - The strip is a mouse-first taskbar surface; there is currently no keyboard
-  focus model or screen-reader representation. Do not remove the right-click
-  menu, since it is the only exit/configuration path.
+  focus model or screen-reader representation. Keep both the `Done` control and
+  the right-click menu available as exit/configuration paths.
 - Keep the right-click target the full strip, not an individual cell.
 - Do not reduce the strip below the 48 px taskbar height; the two text lines and
   bar need the full content band.
@@ -248,10 +285,14 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 1. Strip at 100%: labels, temperatures, values, and bars align; no cell text
    touches its neighbor.
 2. Five-cell layout at 370 px; strip remains clear of the notification area.
-3. Hover panel at 400 × 272; all cards fit without clipping.
+3. Overview panel at 400 × 272 and Settings panel at 400 × 344; all content
+   fits without clipping.
 4. Dark and light themes both retain hierarchy and contrast.
 5. `mem_mode` and `disk_mode` in `gb` and `percent` do not overflow cells.
 6. Two-GPU layout shows both adapters, mini bars, and the summary footer.
 7. Missing temperatures render as `--°`/`temp --`, never as fabricated values.
 8. Right-click menu, click-to-pin, and leave-to-hide still work after layout
    changes.
+9. Settings controls apply live, save automatically, and survive close/reopen.
+10. Position, offset, widget visibility, theme, accent, refresh, hover delay,
+    memory mode, disk mode, reset, and Done all work.

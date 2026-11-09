@@ -1,6 +1,7 @@
 use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
 use windows::Win32::Graphics::DirectWrite::{
-    DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_TRAILING,
+    DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER,
+    DWRITE_TEXT_ALIGNMENT_TRAILING,
 };
 use windows::Win32::Foundation::HWND;
 use windows::core::Result;
@@ -17,6 +18,195 @@ const STRIP_RADIUS: f32 = 12.0;
 const STRIP_CELL_W: f32 = 62.0;
 const LABEL_SIZE: f32 = 9.0;
 const TEMP_SIZE: f32 = 9.0;
+
+pub const PANEL_WIDTH: f32 = 400.0;
+const SETTINGS_HEIGHT: f32 = 344.0;
+const SETTINGS_PAD: f32 = 16.0;
+const SETTINGS_COL_W: f32 = 179.0;
+const SETTINGS_COL2: f32 = SETTINGS_PAD + SETTINGS_COL_W + 10.0;
+const SETTINGS_ROW1: f32 = 56.0;
+const SETTINGS_ROW2: f32 = 104.0;
+const SETTINGS_ROW3: f32 = 152.0;
+const SETTINGS_ROW4: f32 = 200.0;
+const SETTINGS_WIDGETS: f32 = 248.0;
+const SETTINGS_FOOTER: f32 = 304.0;
+const TAB_W: f32 = 58.0;
+const TAB_H: f32 = 28.0;
+
+pub const ACCENTS: [&str; 6] = [
+    "#5B9CFF", "#4CC87E", "#F5A641", "#F55C5C", "#B07CFF", "#50C8D8",
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PanelTab {
+    Overview,
+    Settings,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PanelAction {
+    TabOverview,
+    TabSettings,
+    PositionLeft,
+    PositionRight,
+    ThemeSystem,
+    ThemeDark,
+    ThemeLight,
+    MemoryGb,
+    MemoryPercent,
+    DiskGb,
+    DiskPercent,
+    Refresh500,
+    Refresh1000,
+    Refresh2000,
+    Hover0,
+    Hover150,
+    Hover220,
+    Hover400,
+    OffsetMinus,
+    OffsetPlus,
+    Accent(usize),
+    WidgetCpu,
+    WidgetGpu,
+    WidgetMem,
+    WidgetDisk,
+    Reset,
+    Done,
+}
+
+pub fn panel_height(tab: PanelTab) -> f32 {
+    match tab {
+        PanelTab::Overview => 272.0,
+        PanelTab::Settings => SETTINGS_HEIGHT,
+    }
+}
+
+type Rect = (f32, f32, f32, f32);
+
+fn contains(rect: Rect, x: f32, y: f32) -> bool {
+    x >= rect.0 && x < rect.0 + rect.2 && y >= rect.1 && y < rect.1 + rect.3
+}
+
+fn tab_rect(tab: PanelTab) -> Rect {
+    match tab {
+        PanelTab::Overview => (SETTINGS_PAD, 8.0, TAB_W, TAB_H),
+        PanelTab::Settings => (SETTINGS_PAD + TAB_W + 6.0, 8.0, TAB_W, TAB_H),
+    }
+}
+
+fn segment_rect(column_x: f32, row_y: f32, count: usize, index: usize) -> Rect {
+    let gap = 4.0;
+    let width = (SETTINGS_COL_W - (count as f32 - 1.0) * gap) / count as f32;
+    (
+        column_x + index as f32 * (width + gap),
+        row_y + 16.0,
+        width,
+        24.0,
+    )
+}
+
+fn widget_rect(index: usize) -> Rect {
+    let gap = 6.0;
+    let width = (PANEL_WIDTH - 2.0 * SETTINGS_PAD - 3.0 * gap) / 4.0;
+    (
+        SETTINGS_PAD + index as f32 * (width + gap),
+        SETTINGS_WIDGETS + 14.0,
+        width,
+        24.0,
+    )
+}
+
+fn settings_rect(action: PanelAction) -> Option<Rect> {
+    match action {
+        PanelAction::PositionLeft => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW1, 2, 0)),
+        PanelAction::PositionRight => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW1, 2, 1)),
+        PanelAction::ThemeSystem => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 3, 0)),
+        PanelAction::ThemeDark => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 3, 1)),
+        PanelAction::ThemeLight => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 3, 2)),
+        PanelAction::MemoryGb => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW2, 2, 0)),
+        PanelAction::MemoryPercent => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW2, 2, 1)),
+        PanelAction::DiskGb => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW2, 2, 0)),
+        PanelAction::DiskPercent => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW2, 2, 1)),
+        PanelAction::Refresh500 => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW3, 3, 0)),
+        PanelAction::Refresh1000 => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW3, 3, 1)),
+        PanelAction::Refresh2000 => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW3, 3, 2)),
+        PanelAction::Hover0 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 0)),
+        PanelAction::Hover150 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 1)),
+        PanelAction::Hover220 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 2)),
+        PanelAction::Hover400 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 3)),
+        PanelAction::OffsetMinus => Some((SETTINGS_PAD, SETTINGS_ROW4 + 16.0, 30.0, 24.0)),
+        PanelAction::OffsetPlus => Some((
+            SETTINGS_PAD + SETTINGS_COL_W - 30.0,
+            SETTINGS_ROW4 + 16.0,
+            30.0,
+            24.0,
+        )),
+        PanelAction::Accent(index) => {
+            if index >= ACCENTS.len() {
+                return None;
+            }
+            let total = ACCENTS.len() as f32 * 20.0 + (ACCENTS.len() as f32 - 1.0) * 5.0;
+            let start = SETTINGS_COL2 + (SETTINGS_COL_W - total) / 2.0;
+            Some((start + index as f32 * 25.0, SETTINGS_ROW4 + 16.0, 20.0, 20.0))
+        }
+        PanelAction::WidgetCpu => Some(widget_rect(0)),
+        PanelAction::WidgetGpu => Some(widget_rect(1)),
+        PanelAction::WidgetMem => Some(widget_rect(2)),
+        PanelAction::WidgetDisk => Some(widget_rect(3)),
+        PanelAction::Reset => Some((PANEL_WIDTH - SETTINGS_PAD - 70.0, SETTINGS_FOOTER, 70.0, 24.0)),
+        PanelAction::Done => Some((SETTINGS_PAD, SETTINGS_FOOTER, 60.0, 24.0)),
+        _ => None,
+    }
+}
+
+const SETTINGS_ACTIONS: &[PanelAction] = &[
+    PanelAction::PositionLeft,
+    PanelAction::PositionRight,
+    PanelAction::ThemeSystem,
+    PanelAction::ThemeDark,
+    PanelAction::ThemeLight,
+    PanelAction::MemoryGb,
+    PanelAction::MemoryPercent,
+    PanelAction::DiskGb,
+    PanelAction::DiskPercent,
+    PanelAction::Refresh500,
+    PanelAction::Refresh1000,
+    PanelAction::Refresh2000,
+    PanelAction::Hover0,
+    PanelAction::Hover150,
+    PanelAction::Hover220,
+    PanelAction::Hover400,
+    PanelAction::OffsetMinus,
+    PanelAction::OffsetPlus,
+    PanelAction::Accent(0),
+    PanelAction::Accent(1),
+    PanelAction::Accent(2),
+    PanelAction::Accent(3),
+    PanelAction::Accent(4),
+    PanelAction::Accent(5),
+    PanelAction::WidgetCpu,
+    PanelAction::WidgetGpu,
+    PanelAction::WidgetMem,
+    PanelAction::WidgetDisk,
+    PanelAction::Reset,
+    PanelAction::Done,
+];
+
+pub fn action_at(tab: PanelTab, x: f32, y: f32) -> Option<PanelAction> {
+    if contains(tab_rect(PanelTab::Overview), x, y) {
+        return Some(PanelAction::TabOverview);
+    }
+    if contains(tab_rect(PanelTab::Settings), x, y) {
+        return Some(PanelAction::TabSettings);
+    }
+    if tab != PanelTab::Settings {
+        return None;
+    }
+    SETTINGS_ACTIONS
+        .iter()
+        .copied()
+        .find(|action| settings_rect(*action).is_some_and(|rect| contains(rect, x, y)))
+}
 
 pub fn strip_width_dip(config: &Config, gpu_count: usize) -> i32 {
     let count = strip_cell_count(config, gpu_count) as f32;
@@ -309,6 +499,8 @@ pub fn draw_panel(
     light: bool,
     width: f32,
     height: f32,
+    tab: PanelTab,
+    hover: Option<PanelAction>,
 ) -> Result<()> {
     let p = palette(light, &config.accent);
     renderer.begin()?;
@@ -326,16 +518,7 @@ pub fn draw_panel(
         format!("{minutes}m")
     };
     let pad = 16.0;
-    renderer.text_left_weight(
-        "SYSTEM",
-        pad,
-        13.0,
-        120.0,
-        14.0,
-        9.5,
-        p.muted,
-        DWRITE_FONT_WEIGHT_NORMAL,
-    );
+    draw_tabs(renderer, tab, hover, &p);
     renderer.text_weight(
         &format!("UP {uptime_text}"),
         width - pad - 96.0,
@@ -359,6 +542,11 @@ pub fn draw_panel(
         p.good,
         DWRITE_FONT_WEIGHT_NORMAL,
     );
+
+    if tab == PanelTab::Settings {
+        draw_settings(renderer, config, hover, &p);
+        return renderer.end(hwnd);
+    }
 
     let gap = 10.0;
     let top = 44.0;
@@ -522,6 +710,341 @@ pub fn draw_panel(
     }
 
     renderer.end(hwnd)
+}
+
+fn draw_tabs(renderer: &Renderer, tab: PanelTab, hover: Option<PanelAction>, p: &Palette) {
+    for (item, action, label) in [
+        (PanelTab::Overview, PanelAction::TabOverview, "Overview"),
+        (PanelTab::Settings, PanelAction::TabSettings, "Settings"),
+    ] {
+        let (x, y, w, h) = tab_rect(item);
+        let selected = tab == item;
+        let hovered = hover == Some(action);
+        if selected || hovered {
+            renderer.fill_round(x, y, w, h, 7.0, p.card);
+        }
+        let color = if selected || hovered { p.text } else { p.muted };
+        let weight = if selected {
+            DWRITE_FONT_WEIGHT_SEMI_BOLD
+        } else {
+            DWRITE_FONT_WEIGHT_NORMAL
+        };
+        renderer.text_weight(
+            label,
+            x,
+            y + 6.0,
+            w,
+            14.0,
+            9.5,
+            color,
+            weight,
+            DWRITE_TEXT_ALIGNMENT_CENTER,
+        );
+        if selected {
+            renderer.fill_round(x + 8.0, y + h - 4.0, w - 16.0, 2.0, 1.0, p.accent);
+        }
+    }
+}
+
+fn draw_settings(
+    renderer: &Renderer,
+    config: &Config,
+    hover: Option<PanelAction>,
+    p: &Palette,
+) {
+    draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW1, "POSITION", p);
+    draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW1, "THEME", p);
+    draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW2, "MEMORY", p);
+    draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW2, "DISK", p);
+    draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW3, "REFRESH", p);
+    draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW3, "HOVER DELAY", p);
+    draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW4, "OFFSET", p);
+    draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW4, "ACCENT", p);
+    draw_group(renderer, SETTINGS_PAD, SETTINGS_WIDGETS, "WIDGETS", p);
+
+    let position = if config.position == "left" {
+        Some(0)
+    } else {
+        Some(1)
+    };
+    draw_segments(
+        renderer,
+        &[PanelAction::PositionLeft, PanelAction::PositionRight],
+        &["Left", "Right"],
+        position,
+        hover,
+        p,
+    );
+
+    let theme = match config.theme.as_str() {
+        "system" => Some(0),
+        "dark" => Some(1),
+        "light" => Some(2),
+        _ => None,
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::ThemeSystem,
+            PanelAction::ThemeDark,
+            PanelAction::ThemeLight,
+        ],
+        &["System", "Dark", "Light"],
+        theme,
+        hover,
+        p,
+    );
+
+    let memory = if config.mem_mode == "percent" {
+        Some(1)
+    } else {
+        Some(0)
+    };
+    draw_segments(
+        renderer,
+        &[PanelAction::MemoryGb, PanelAction::MemoryPercent],
+        &["GB", "%"],
+        memory,
+        hover,
+        p,
+    );
+
+    let disk = if config.disk_mode == "percent" {
+        Some(1)
+    } else {
+        Some(0)
+    };
+    draw_segments(
+        renderer,
+        &[PanelAction::DiskGb, PanelAction::DiskPercent],
+        &["GB", "%"],
+        disk,
+        hover,
+        p,
+    );
+
+    let refresh = match config.update_ms {
+        500 => Some(0),
+        1000 => Some(1),
+        2000 => Some(2),
+        _ => None,
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::Refresh500,
+            PanelAction::Refresh1000,
+            PanelAction::Refresh2000,
+        ],
+        &["0.5s", "1s", "2s"],
+        refresh,
+        hover,
+        p,
+    );
+
+    let delay = match config.hover_delay_ms {
+        0 => Some(0),
+        150 => Some(1),
+        220 => Some(2),
+        400 => Some(3),
+        _ => None,
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::Hover0,
+            PanelAction::Hover150,
+            PanelAction::Hover220,
+            PanelAction::Hover400,
+        ],
+        &["0", "150", "220", "400"],
+        delay,
+        hover,
+        p,
+    );
+
+    if let Some(rect) = settings_rect(PanelAction::OffsetMinus) {
+        draw_chip(
+            renderer,
+            rect,
+            "\u{2212}",
+            false,
+            hover == Some(PanelAction::OffsetMinus),
+            p,
+            12.0,
+        );
+    }
+    if let Some(rect) = settings_rect(PanelAction::OffsetPlus) {
+        draw_chip(
+            renderer,
+            rect,
+            "+",
+            false,
+            hover == Some(PanelAction::OffsetPlus),
+            p,
+            12.0,
+        );
+    }
+    renderer.text_weight(
+        &format!("{} DIP", config.offset),
+        SETTINGS_PAD + 34.0,
+        SETTINGS_ROW4 + 20.0,
+        SETTINGS_COL_W - 68.0,
+        14.0,
+        9.5,
+        p.secondary,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_TEXT_ALIGNMENT_CENTER,
+    );
+
+    for (index, hex) in ACCENTS.iter().enumerate() {
+        let Some((x, y, w, h)) = settings_rect(PanelAction::Accent(index)) else {
+            continue;
+        };
+        let selected = config.accent.eq_ignore_ascii_case(hex);
+        let hovered = hover == Some(PanelAction::Accent(index));
+        renderer.fill_round(x, y, w, h, 5.0, accent_color(hex));
+        if selected || hovered {
+            renderer.stroke_round(
+                x - 1.0,
+                y - 1.0,
+                w + 2.0,
+                h + 2.0,
+                6.0,
+                if selected { p.text } else { p.accent },
+                1.0,
+            );
+        }
+    }
+
+    for (action, label, widget) in [
+        (PanelAction::WidgetCpu, "CPU", "cpu"),
+        (PanelAction::WidgetGpu, "GPU", "gpu"),
+        (PanelAction::WidgetMem, "MEM", "mem"),
+        (PanelAction::WidgetDisk, "DISK", "disk"),
+    ] {
+        let Some(rect) = settings_rect(action) else {
+            continue;
+        };
+        let selected = config.widgets.iter().any(|item| item == widget);
+        draw_chip(renderer, rect, label, selected, hover == Some(action), p, 9.0);
+    }
+
+    if let Some(rect) = settings_rect(PanelAction::Done) {
+        draw_chip(
+            renderer,
+            rect,
+            "Done",
+            false,
+            hover == Some(PanelAction::Done),
+            p,
+            9.0,
+        );
+    }
+    if let Some(rect) = settings_rect(PanelAction::Reset) {
+        draw_chip(
+            renderer,
+            rect,
+            "Reset defaults",
+            false,
+            hover == Some(PanelAction::Reset),
+            p,
+            8.5,
+        );
+    }
+    renderer.text_left_weight(
+        "Changes save automatically",
+        SETTINGS_PAD + 68.0,
+        SETTINGS_FOOTER + 6.0,
+        218.0,
+        14.0,
+        8.5,
+        p.muted,
+        DWRITE_FONT_WEIGHT_NORMAL,
+    );
+}
+
+fn draw_group(renderer: &Renderer, x: f32, y: f32, label: &str, p: &Palette) {
+    renderer.text_left_weight(
+        label,
+        x,
+        y,
+        160.0,
+        12.0,
+        9.0,
+        p.muted,
+        DWRITE_FONT_WEIGHT_NORMAL,
+    );
+}
+
+fn draw_segments(
+    renderer: &Renderer,
+    actions: &[PanelAction],
+    labels: &[&str],
+    selected: Option<usize>,
+    hover: Option<PanelAction>,
+    p: &Palette,
+) {
+    for (index, (action, label)) in actions.iter().zip(labels.iter()).enumerate() {
+        let Some(rect) = settings_rect(*action) else {
+            continue;
+        };
+        draw_chip(
+            renderer,
+            rect,
+            label,
+            selected == Some(index),
+            hover == Some(*action),
+            p,
+            9.0,
+        );
+    }
+}
+
+fn draw_chip(
+    renderer: &Renderer,
+    rect: Rect,
+    label: &str,
+    selected: bool,
+    hovered: bool,
+    p: &Palette,
+    size: f32,
+) {
+    let (x, y, w, h) = rect;
+    let fill = if selected || hovered { p.card } else { p.track };
+    renderer.fill_round(x, y, w, h, 6.0, fill);
+    renderer.stroke_round(
+        x + 0.5,
+        y + 0.5,
+        w - 1.0,
+        h - 1.0,
+        5.5,
+        if selected || hovered {
+            p.accent
+        } else {
+            p.border
+        },
+        1.0,
+    );
+    renderer.text_weight(
+        label,
+        x,
+        y + 6.0,
+        w,
+        12.0,
+        size,
+        if selected || hovered {
+            p.text
+        } else {
+            p.secondary
+        },
+        if selected {
+            DWRITE_FONT_WEIGHT_SEMI_BOLD
+        } else {
+            DWRITE_FONT_WEIGHT_NORMAL
+        },
+        DWRITE_TEXT_ALIGNMENT_CENTER,
+    );
 }
 
 type Card = (f32, f32, f32, f32);

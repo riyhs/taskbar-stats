@@ -34,8 +34,6 @@ const TIMER_ATTACH: usize = 2;
 const TIMER_HOVER: usize = 3;
 const TIMER_HIDE: usize = 4;
 
-const POPUP_W_DIP: f32 = 400.0;
-const POPUP_H_DIP: f32 = 272.0;
 const MUTEX_NAME: PCWSTR = w!("Local\\TaskbarStats.SingleInstance");
 const WM_MOUSELEAVE_MSG: u32 = 0x02A3;
 
@@ -102,6 +100,8 @@ pub fn run() -> Result<()> {
             strip_dpi: 96,
             popup_visible: false,
             pinned: false,
+            panel_tab: ui::PanelTab::Overview,
+            panel_hover: None,
             hover_timer: false,
             hide_timer: false,
             taskbar_created,
@@ -145,6 +145,8 @@ struct App {
     strip_dpi: u32,
     popup_visible: bool,
     pinned: bool,
+    panel_tab: ui::PanelTab,
+    panel_hover: Option<ui::PanelAction>,
     hover_timer: bool,
     hide_timer: bool,
     taskbar_created: u32,
@@ -301,9 +303,19 @@ impl App {
                     }
                     self.hide_timer = false;
                 }
+                let (x, y) = self.panel_point(lparam);
+                let hover = ui::action_at(self.panel_tab, x, y);
+                if hover != self.panel_hover {
+                    self.panel_hover = hover;
+                    self.render_popup();
+                }
                 LRESULT(0)
             }
             WM_MOUSELEAVE_MSG => {
+                if self.panel_hover.is_some() {
+                    self.panel_hover = None;
+                    self.render_popup();
+                }
                 if !self.pinned {
                     self.start_hide_timer();
                 }
@@ -311,7 +323,12 @@ impl App {
             }
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
             WM_LBUTTONUP => {
-                if self.pinned {
+                let (x, y) = self.panel_point(lparam);
+                if let Some(action) = ui::action_at(self.panel_tab, x, y) {
+                    self.handle_panel_action(action);
+                } else if self.panel_tab == ui::PanelTab::Settings {
+                    // Keep the settings surface open when a click lands between controls.
+                } else if self.pinned {
                     self.hide_popup();
                 } else {
                     self.pinned = true;
@@ -329,6 +346,13 @@ impl App {
             WM_ERASEBKGND => LRESULT(1),
             _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
         }
+    }
+
+    fn panel_point(&self, lparam: LPARAM) -> (f32, f32) {
+        let (x, y) = client_point(lparam);
+        let dpi = self.taskbar.map(|tb| tb.dpi).unwrap_or(96).max(96) as f32;
+        let scale = 96.0 / dpi;
+        (x * scale, y * scale)
     }
 
     fn sample_and_render(&mut self) {
@@ -369,8 +393,8 @@ impl App {
     fn render_popup(&mut self) {
         let Some(tb) = self.taskbar else { return };
         let dpi = tb.dpi.max(96);
-        let width = (POPUP_W_DIP * dpi as f32 / 96.0).round() as i32;
-        let height = (POPUP_H_DIP * dpi as f32 / 96.0).round() as i32;
+        let width = (ui::PANEL_WIDTH * dpi as f32 / 96.0).round() as i32;
+        let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
         if self.popup_renderer.resize(width, height, dpi).is_err() {
             return;
         }
@@ -380,8 +404,10 @@ impl App {
             &self.snapshot,
             &self.config,
             self.light,
-            POPUP_W_DIP,
-            POPUP_H_DIP,
+            ui::PANEL_WIDTH,
+            ui::panel_height(self.panel_tab),
+            self.panel_tab,
+            self.panel_hover,
         ) {
             logging::write(&format!("popup render failed: {error}"));
         }
@@ -422,6 +448,7 @@ impl App {
     fn show_popup(&mut self, pin: bool) {
         let Some(tb) = self.taskbar else { return };
         self.pinned = pin;
+        self.panel_hover = None;
         if self.hide_timer {
             unsafe {
                 let _ = KillTimer(self.strip, TIMER_HIDE);
@@ -429,8 +456,8 @@ impl App {
             self.hide_timer = false;
         }
         let dpi = tb.dpi.max(96);
-        let width = (POPUP_W_DIP * dpi as f32 / 96.0).round() as i32;
-        let height = (POPUP_H_DIP * dpi as f32 / 96.0).round() as i32;
+        let width = (ui::PANEL_WIDTH * dpi as f32 / 96.0).round() as i32;
+        let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
 
         let mut strip_rect = RECT::default();
         let mut taskbar_rect = RECT::default();
@@ -473,6 +500,8 @@ impl App {
     fn hide_popup(&mut self) {
         self.pinned = false;
         self.popup_visible = false;
+        self.panel_tab = ui::PanelTab::Overview;
+        self.panel_hover = None;
         unsafe {
             let _ = ShowWindow(self.popup, SW_HIDE);
         }
@@ -571,11 +600,102 @@ impl App {
         };
     }
 
+    fn handle_panel_action(&mut self, action: ui::PanelAction) {
+        match action {
+            ui::PanelAction::TabOverview => {
+                self.panel_tab = ui::PanelTab::Overview;
+                self.pinned = true;
+                self.show_popup(true);
+                return;
+            }
+            ui::PanelAction::TabSettings => {
+                self.panel_tab = ui::PanelTab::Settings;
+                self.pinned = true;
+                self.show_popup(true);
+                return;
+            }
+            ui::PanelAction::Done => {
+                self.hide_popup();
+                return;
+            }
+            _ => {}
+        }
+
+        self.pinned = true;
+        let before = self.config.clone();
+        match action {
+            ui::PanelAction::PositionLeft => self.config.position = "left".into(),
+            ui::PanelAction::PositionRight => self.config.position = "right".into(),
+            ui::PanelAction::ThemeSystem => self.config.theme = "system".into(),
+            ui::PanelAction::ThemeDark => self.config.theme = "dark".into(),
+            ui::PanelAction::ThemeLight => self.config.theme = "light".into(),
+            ui::PanelAction::MemoryGb => self.config.mem_mode = "gb".into(),
+            ui::PanelAction::MemoryPercent => self.config.mem_mode = "percent".into(),
+            ui::PanelAction::DiskGb => self.config.disk_mode = "gb".into(),
+            ui::PanelAction::DiskPercent => self.config.disk_mode = "percent".into(),
+            ui::PanelAction::Refresh500 => self.config.update_ms = 500,
+            ui::PanelAction::Refresh1000 => self.config.update_ms = 1000,
+            ui::PanelAction::Refresh2000 => self.config.update_ms = 2000,
+            ui::PanelAction::Hover0 => self.config.hover_delay_ms = 0,
+            ui::PanelAction::Hover150 => self.config.hover_delay_ms = 150,
+            ui::PanelAction::Hover220 => self.config.hover_delay_ms = 220,
+            ui::PanelAction::Hover400 => self.config.hover_delay_ms = 400,
+            ui::PanelAction::OffsetMinus => {
+                self.config.offset = (self.config.offset - 2).clamp(-400, 400);
+            }
+            ui::PanelAction::OffsetPlus => {
+                self.config.offset = (self.config.offset + 2).clamp(-400, 400);
+            }
+            ui::PanelAction::Accent(index) => {
+                if let Some(hex) = ui::ACCENTS.get(index) {
+                    self.config.accent = (*hex).to_string();
+                }
+            }
+            ui::PanelAction::WidgetCpu => toggle_widget(&mut self.config, "cpu"),
+            ui::PanelAction::WidgetGpu => toggle_widget(&mut self.config, "gpu"),
+            ui::PanelAction::WidgetMem => toggle_widget(&mut self.config, "mem"),
+            ui::PanelAction::WidgetDisk => toggle_widget(&mut self.config, "disk"),
+            ui::PanelAction::Reset => self.config = Config::default(),
+            _ => {}
+        }
+
+        self.config.validate();
+        if let Err(error) = self.config.save(&self.config_path) {
+            logging::write(&format!("config save failed: {error}"));
+        }
+        self.refresh_theme();
+        if before.update_ms != self.config.update_ms {
+            unsafe {
+                SetTimer(
+                    self.hidden,
+                    TIMER_UPDATE,
+                    self.config.update_ms,
+                    None,
+                );
+            }
+        }
+
+        let layout_changed = before.position != self.config.position
+            || before.offset != self.config.offset
+            || before.widgets != self.config.widgets;
+        if layout_changed {
+            self.position_strip();
+        }
+        self.render_strip();
+        if self.popup_visible {
+            if layout_changed {
+                self.show_popup(true);
+            } else {
+                self.render_popup();
+            }
+        }
+    }
+
     fn show_menu(&mut self) {
         unsafe {
             let Ok(menu) = CreatePopupMenu() else { return };
-            let _ = AppendMenuW(menu, MF_STRING, 1, w!("Reload config"));
-            let _ = AppendMenuW(menu, MF_STRING, 2, w!("Open config"));
+            let _ = AppendMenuW(menu, MF_STRING, 1, w!("Settings"));
+            let _ = AppendMenuW(menu, MF_STRING, 2, w!("Reload config"));
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
             let _ = AppendMenuW(menu, MF_STRING, 3, w!("Exit"));
             let mut point = POINT::default();
@@ -592,12 +712,12 @@ impl App {
             );
             let _ = DestroyMenu(menu);
             match command.0 as usize {
-                1 => self.reload_config(),
-                2 => {
-                    let _ = std::process::Command::new("notepad.exe")
-                        .arg(&self.config_path)
-                        .spawn();
+                1 => {
+                    self.panel_tab = ui::PanelTab::Settings;
+                    self.pinned = true;
+                    self.show_popup(true);
                 }
+                2 => self.reload_config(),
                 3 => PostQuitMessage(0),
                 _ => {}
             }
@@ -620,6 +740,41 @@ impl App {
         }
         self.sample_and_render();
     }
+}
+
+fn client_point(lparam: LPARAM) -> (f32, f32) {
+    let x = (lparam.0 & 0xFFFF) as u16 as i16 as f32;
+    let y = ((lparam.0 >> 16) & 0xFFFF) as u16 as i16 as f32;
+    (x, y)
+}
+
+fn toggle_widget(config: &mut Config, widget: &str) {
+    let mut widgets = config.widgets.clone();
+    if let Some(index) = widgets.iter().position(|item| item == widget) {
+        if widgets.len() == 1 {
+            return;
+        }
+        widgets.remove(index);
+    } else {
+        widgets.push(widget.to_string());
+    }
+
+    let order = ["cpu", "gpu", "mem", "disk"];
+    let mut next = Vec::new();
+    for item in order {
+        if widgets.iter().any(|widget| widget == item) {
+            next.push(item.to_string());
+        }
+    }
+    for item in widgets {
+        if !order.contains(&item.as_str()) && !next.contains(&item) {
+            next.push(item);
+        }
+    }
+    if next.is_empty() {
+        next.push("cpu".to_string());
+    }
+    config.widgets = next;
 }
 
 fn system_uses_light() -> bool {
