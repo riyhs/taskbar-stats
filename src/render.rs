@@ -2,15 +2,18 @@ use std::ffi::c_void;
 use std::mem::size_of;
 
 use windows::core::{w, Result};
+use windows::Foundation::Numerics::Matrix3x2;
 use windows::Win32::Foundation::{COLORREF, HANDLE, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D_POINT_2F, D2D_RECT_F, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
+    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F,
+    D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, D2D1_ELLIPSE, D2D1_ROUNDED_RECT, ID2D1Brush, ID2D1DCRenderTarget,
-    ID2D1Factory, ID2D1SolidColorBrush, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1CreateFactory, ID2D1Bitmap, ID2D1Brush, ID2D1DCRenderTarget, ID2D1Factory,
+    ID2D1SolidColorBrush, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES,
+    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
     D2D1_FEATURE_LEVEL_DEFAULT, D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT,
-    D2D1_RENDER_TARGET_USAGE_NONE,
+    D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
@@ -20,9 +23,9 @@ use windows::Win32::Graphics::DirectWrite::{
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject,
-    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, DIB_RGB_COLORS,
-    HBITMAP, HDC, HGDIOBJ,
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, AC_SRC_ALPHA,
+    AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC,
+    HGDIOBJ,
 };
 use windows::Win32::UI::WindowsAndMessaging::{UpdateLayeredWindow, ULW_ALPHA};
 
@@ -42,8 +45,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new() -> Result<Self> {
         unsafe {
-            let factory: ID2D1Factory =
-                D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
+            let factory: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
             let dwrite: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
             let target = create_target(&factory, 96.0)?;
             let mem_dc = CreateCompatibleDC(HDC::default());
@@ -93,7 +95,14 @@ impl Renderer {
                 ..Default::default()
             };
             let mut bits: *mut c_void = std::ptr::null_mut();
-            let dib = CreateDIBSection(self.mem_dc, &bmi, DIB_RGB_COLORS, &mut bits, HANDLE::default(), 0)?;
+            let dib = CreateDIBSection(
+                self.mem_dc,
+                &bmi,
+                DIB_RGB_COLORS,
+                &mut bits,
+                HANDLE::default(),
+                0,
+            )?;
             self.old = SelectObject(self.mem_dc, HGDIOBJ(dib.0));
             self.dib = dib;
             self.rect = RECT {
@@ -121,6 +130,20 @@ impl Renderer {
             self.target.Clear(Some(&clear));
         }
         Ok(())
+    }
+
+    pub fn translate(&self, x: f32, y: f32) {
+        let transform = Matrix3x2 {
+            M11: 1.0,
+            M12: 0.0,
+            M21: 0.0,
+            M22: 1.0,
+            M31: x,
+            M32: y,
+        };
+        unsafe {
+            self.target.SetTransform(&transform);
+        }
     }
 
     pub fn end(&self, hwnd: HWND) -> Result<()> {
@@ -151,15 +174,7 @@ impl Renderer {
         }
     }
 
-    pub fn fill_round(
-        &self,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        radius: f32,
-        color: D2D1_COLOR_F,
-    ) {
+    pub fn fill_round(&self, x: f32, y: f32, w: f32, h: f32, radius: f32, color: D2D1_COLOR_F) {
         let rounded = D2D1_ROUNDED_RECT {
             rect: D2D_RECT_F {
                 left: x,
@@ -291,6 +306,51 @@ impl Renderer {
             weight,
             DWRITE_TEXT_ALIGNMENT_LEADING,
         );
+    }
+
+    pub fn draw_background(
+        &self,
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> Result<()> {
+        if width == 0 || height == 0 || pixels.len() < width as usize * height as usize * 4 {
+            return Ok(());
+        }
+        let properties = D2D1_BITMAP_PROPERTIES {
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            },
+            dpiX: 96.0,
+            dpiY: 96.0,
+        };
+        unsafe {
+            let bitmap: ID2D1Bitmap = self.target.CreateBitmap(
+                D2D_SIZE_U { width, height },
+                Some(pixels.as_ptr().cast()),
+                width * 4,
+                &properties,
+            )?;
+            let destination = D2D_RECT_F {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            };
+            self.target.DrawBitmap(
+                &bitmap,
+                Some(&destination),
+                1.0,
+                D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                None,
+            );
+        }
+        Ok(())
     }
 
     fn brush(&self, color: D2D1_COLOR_F) -> Result<ID2D1SolidColorBrush> {

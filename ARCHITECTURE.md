@@ -64,20 +64,28 @@ without being clipped by the taskbar parent.
 
 Strip placement:
 
-- `position = "right"`: `tray_left - strip_width - offset`.
-- `position = "left"`: `offset`.
-- If the tray is unavailable, the right position falls back to
-  `taskbar_width - strip_width - offset`.
+- Enumerate visible child windows of `Shell_TrayWnd`.
+- Exclude the strip itself, `TrayNotifyWnd`, and full-width composition surfaces.
+- Merge the remaining rectangles, inflate them by a 6 px collision gap, and
+  compute free gaps.
+- `position = "right"`: choose the free gap whose right edge is closest to
+  `tray_left - offset`.
+- `position = "left"`: choose the free gap whose left edge is closest to
+  `offset`.
+- If no gap fits, fall back to the edge-anchored position.
 - The result is clamped to the taskbar width.
 - The strip height is the taskbar height; the UI draws inside a 4 px inset.
+
+This still overlays the taskbar rather than reserving layout space, but it no
+longer covers visible sibling widgets.
 
 Strip width is calculated from the widget list and GPU count. A `gpu` widget
 contributes one cell per physical adapter.
 
 Popup placement:
 
-- Width 400 DIP; height 272 DIP for Overview and 344 DIP for Settings, scaled by
-  taskbar DPI.
+- Content width 400 DIP plus 6 DIP transparent side margins; height 272 DIP
+  for Overview and 392 DIP for Settings, scaled by taskbar DPI.
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
   below a top taskbar.
@@ -95,6 +103,12 @@ Each of the strip and popup owns a `Renderer`:
 5. Clear to transparent, draw rounded rectangles, text, bars, and dots.
 6. `EndDraw`, then present with `UpdateLayeredWindow`.
 
+For the Glass theme, `show_popup` briefly hides the popup, captures the desktop
+region behind its content with `BitBlt`, applies a separable box blur and a
+rounded-corner alpha mask, and stores the result. `draw_panel` draws that
+captured backdrop beneath the translucent glass tint and cards. The blur is
+sampled when the panel is shown or resized, not on every metric refresh.
+
 The UI works in DIPs. `app.rs` converts pixel dimensions back to DIPs before
 calling `ui::draw_strip`/`ui::draw_panel`, and converts popup mouse coordinates
 back to DIPs before hit testing, so layout constants remain stable across DPI
@@ -108,8 +122,8 @@ UI composition lives in `src/ui.rs`:
   the settings form.
 - `draw_settings`, `action_at`, and `settings_rect` share one fixed control
   geometry for drawing and hit testing.
-- `palette` supplies dark/light tokens; `palette` and threshold helpers are the
-  only places that decide semantic colors.
+- `palette` supplies system/dark/light/glass tokens; `palette` and threshold
+  helpers are the only places that decide semantic colors.
 - `src/render.rs` provides weighted text, rounded fills/strokes, circles, and
   layered-window presentation.
 
@@ -135,18 +149,16 @@ Popup input:
 - Mouse movement cancels a pending hide and updates the hovered control.
 - Mouse leave clears hover and starts a hide timer unless pinned.
 - Left click resolves `PanelAction` through `ui::action_at`.
-  - Tab clicks switch the panel and pin it.
+  - Tab clicks switch the panel without pinning a hover-opened popup.
   - Settings controls mutate the config, save it, and apply immediately.
-  - `Done` closes the settings surface.
-  - Empty settings space is intentionally inert.
-  - Empty overview space pins or closes the panel using the original behavior.
+  - Empty panel space pins an unpinned panel or closes a pinned one.
 - Right click closes.
 - The popup never activates.
 
 ## Settings flow
 
 The Settings tab is a two-column control surface rendered inside the same
-popup. The panel height changes from 272 to 344 DIP when it opens.
+popup. The panel height changes from 272 to 392 DIP when it opens.
 
 1. A click arrives at the popup in physical pixels.
 2. `App::panel_point` converts the point to DIPs.
@@ -159,8 +171,9 @@ popup. The panel height changes from 272 to 344 DIP when it opens.
    run as needed. Layout-affecting changes re-center the popup.
 
 Settings include position, offset, theme, accent, memory/disk display mode,
-refresh interval, hover delay, visible widgets, reset defaults, and Done. The
-config file is an implementation detail; manual editing is not required.
+refresh interval, hover delay, visible widgets, per-GPU visibility, reset
+defaults. The config file is an implementation detail; manual editing
+is not required.
 
 `TaskbarCreated` triggers reattachment after Explorer restarts. Display, DPI,
 theme, and settings changes trigger re-placement and redraw.
@@ -185,13 +198,13 @@ Sample interval: `update_ms`, default 1000 ms, clamped to 250–5000 ms.
 | System CPU load | `GetSystemTimes` deltas |
 | Per-thread load | `NtQuerySystemInformation(SystemProcessorPerformanceInformation)` deltas |
 | Memory | `GlobalMemoryStatusEx` |
-| System disk capacity | `GetDiskFreeSpaceExW("C:\\")` |
+| Local disk capacity | Sum `GetDiskFreeSpaceExW` across fixed NTFS/ReFS volumes that report physical disk extents |
 | Uptime | `GetTickCount64` |
 | CPU temperature | PDH `\Thermal Zone Information(*)\High Precision Temperature`, then `Temperature` |
 | GPU enumeration | DXGI `IDXGIFactory1::EnumAdapters1` |
 | GPU load | PDH `\GPU Engine(*)\Utilization Percentage` grouped by adapter LUID; NVML preferred for NVIDIA |
 | GPU temperature | NVML for NVIDIA; `D3DKMTQueryAdapterInfo(KMTQAITYPE_ADAPTERPERFDATA)` fallback |
-| Disk temperature | `IOCTL_STORAGE_QUERY_PROPERTY(StorageDeviceTemperatureProperty)` on the volume's physical disk |
+| Disk temperature | `IOCTL_STORAGE_QUERY_PROPERTY(StorageDeviceTemperatureProperty)` on the system volume's physical disk |
 | Memory temperature | No standard user-mode source; remains `None` |
 
 CPU temperature accepts only plausible values, filters the known 27.8 °C
@@ -218,16 +231,18 @@ hover_delay_ms = 220
 update_ms = 1000
 mem_mode = "gb"
 disk_mode = "gb"
+gpu_visible = []
 ```
 
 Validation:
 
 - `position`: `left` or `right`.
-- `theme`: `system`, `dark`, or `light`.
+- `theme`: `system`, `dark`, `light`, or `glass`.
 - `offset`: −400 to 400 DIP.
 - `hover_delay_ms`: 0–2000 ms.
 - `update_ms`: 250–5000 ms.
 - `mem_mode`, `disk_mode`: `gb` or `percent`.
+- `gpu_visible`: adapter names, empty to show all; duplicate names removed.
 - `widgets`: known widgets only, duplicates removed, fallback to the default
   list when empty.
 - `accent`: six hex digits, normalized to uppercase.
@@ -263,10 +278,12 @@ the panic message before the default hook runs.
 
 - Primary horizontal taskbar only; vertical and secondary-taskbar placement are
   not implemented.
-- No free-space auto-placement; `offset` is manual.
+- Free-space detection relies on visible taskbar child rectangles; UIA-only
+  widgets and full-screen overlays are not detected.
 - The strip overlays the taskbar and does not reserve button space.
-- CPU package temperature depends on an ACPI thermal zone. Many laptops expose
-  none to user mode.
+- CPU package temperature depends on an ACPI thermal zone or a vendor driver.
+  Many laptops expose neither to normal user-mode applications; reading the
+  package sensor directly requires elevation and a kernel driver.
 - Intel iGPU temperature is unavailable on hardware/driver combinations that
   expose no thermal sensor through WDDM or Level Zero.
 - GPU sampling is DXGI-based; NVIDIA benefits from NVML, while other vendors

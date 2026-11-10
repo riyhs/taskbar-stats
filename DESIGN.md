@@ -30,7 +30,7 @@ At 96 DPI:
 | Outer inset | 4 px |
 | Outer radius | 12 px |
 | Inner horizontal padding | 6 px |
-| Cell width | 62 px |
+| Cell width | 72 px |
 | Cell gap | 10 px |
 | Track bar | 2.5 px high, full cell width |
 | Label baseline area | 9 px text at y ≈ 7.7 px |
@@ -41,11 +41,11 @@ At 96 DPI:
 Strip width is calculated from the number of cells:
 
 ```text
-width = 2 * 4 + 2 * 6 + cells * 62 + (cells - 1) * 10
+width = 2 * 4 + 2 * 6 + cells * 72 + (cells - 1) * 10
 ```
 
 `gpu` expands to one cell per physical adapter, so five visible cells produce a
-370 px strip. Widths scale with the taskbar DPI.
+420 px strip. Widths scale with the taskbar DPI.
 
 Cell anatomy:
 
@@ -63,8 +63,9 @@ secondary text under normal conditions and warning/bad when hot.
 | Token | Value |
 | --- | --- |
 | Panel width | 400 DIP |
+| Side margin | 6 DIP left and right |
 | Overview height | 272 DIP |
-| Settings height | 344 DIP |
+| Settings height | 392 DIP |
 | Outer radius | 18 px |
 | Border | 1 px |
 | Header height | 44 px |
@@ -84,7 +85,7 @@ CPU                         MEMORY
 temp -- · 8 threads         of 15.8G · 69% used
 [core bars]                 [====================]
 
-DISK C:                     GRAPHICS
+DISK                        GRAPHICS
 322G                        Iris Plus   14%   --°
 47G free · 49°C             MX350        0%   52°
 [====================]      2 adapters · max 52°
@@ -93,6 +94,12 @@ DISK C:                     GRAPHICS
 The panel is centered on the strip, clamped to the monitor work area, and
 placed 6 DIP away from the taskbar. On a bottom taskbar it opens above; on a top
 taskbar it opens below.
+
+The strip is a layered taskbar child, not a taskbar band. It does not reserve
+layout space, but placement scans visible taskbar siblings, excludes the
+notification area and full-width composition surfaces, and chooses the nearest
+free gap with a 6 px collision margin. The configured offset is the desired
+edge gap; collision avoidance may place the strip farther inward.
 
 ## Typography
 
@@ -166,6 +173,21 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 | Bad | `rgb(196, 48, 48)` |
 | Top highlight | white 90% |
 
+### Glass
+
+Glass follows the system light/dark appearance and uses a captured, blurred
+desktop backdrop behind the panel and translucent taskbar surfaces.
+
+| Role | Dark glass | Light glass |
+| --- | --- | --- |
+| Background tint | `rgb(14, 14, 19)` at 62% | `rgb(248, 248, 252)` at 62% |
+| Card | white 7.5% | white 30% |
+| Border | white 15% | black 13% |
+| Track | white 10% | black 10% |
+| Muted label | `rgb(155, 155, 165)` | `rgb(90, 90, 100)` |
+| Secondary | `rgb(198, 198, 208)` | `rgb(55, 55, 65)` |
+| Primary text | `rgb(250, 250, 254)` | `rgb(18, 18, 22)` |
+
 ### Semantic thresholds
 
 | Signal | Normal | Warning | Bad |
@@ -190,8 +212,10 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 - Large value on the second line.
 - Track bar at the bottom; fill represents load/capacity.
 - No per-cell background; spacing provides grouping.
-- Multiple GPUs use the adapter vendor as the label (`INTEL`, `NVIDIA`, `AMD`).
-- A single GPU uses `GPU`.
+- GPU cells use the shortened adapter name (`Iris Plus`, `MX350`), matching
+  the names in the panel and Settings. Each adapter gets its own cell. A single
+  visible adapter uses its name as the card label and its temperature as the
+  secondary line.
 
 ### Panel header
 
@@ -218,16 +242,17 @@ Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 ### Settings tab
 
 The settings surface is a two-column form with a 10 px gap between columns. The
-panel grows to 344 px while Settings is active.
+panel grows to 392 px while Settings is active.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
-| 1 | Position: Left / Right | Theme: System / Dark / Light |
+| 1 | Position: Left / Right | Theme: System / Dark / Light / Glass |
 | 2 | Memory: GB / % | Disk: GB / % |
 | 3 | Refresh: 0.5s / 1s / 2s | Hover delay: 0 / 150 / 220 / 400 ms |
 | 4 | Offset: − / value / + | Accent: six swatches |
-| 5 | Widgets: CPU / GPU / MEM / DISK | |
-| Footer | Done | Reset defaults |
+| 5 | Widgets: CPU / MEM / DISK | |
+| 6 | GPUs: one chip per detected adapter | |
+| Footer | Changes save automatically (note) | Reset defaults |
 
 - Group labels are muted 9 px uppercase.
 - Controls are 24 px high with a 6 px radius.
@@ -238,7 +263,8 @@ panel grows to 344 px while Settings is active.
 - Accent swatches are 20 px; the selected swatch gets a 1 px primary ring,
   hovered swatches get an accent ring.
 - Every change applies immediately and writes the config file.
-- `Done` closes the panel; clicks between controls do not close Settings.
+- Each GPU chip toggles that adapter independently; deselecting every adapter
+  removes the GPU widget, and selecting one restores it.
 - `Reset defaults` restores the default config and updates the UI immediately.
 
 ### Missing data
@@ -255,10 +281,10 @@ panel grows to 344 px while Settings is active.
 - Panel remains while the pointer is over the strip or panel.
 - Leaving both starts a 260 ms hide timer.
 - Clicking the strip pins the panel; clicking again closes it.
-- Clicking the Settings tab pins the panel.
+- Opening the Settings tab does not pin a hover-opened panel.
+- Leaving an unpinned panel, including Settings, starts the hide timer.
 - Settings controls apply changes immediately and save automatically.
-- Clicking between settings controls keeps the settings surface open.
-- `Done` closes the settings surface; clicking the strip also closes it.
+- Clicking the strip closes the panel.
 - Right-clicking the strip opens `Settings`, `Reload config`, and `Exit`.
 - The panel never takes focus (`WS_EX_NOACTIVATE`).
 - Current motion: none. State changes are instantaneous. Do not add entrance
@@ -271,11 +297,11 @@ panel grows to 344 px while Settings is active.
 - All sizes are DIPs; the renderer receives the taskbar DPI and scales the
   backing surface.
 - The panel is clamped to the work area so it cannot run off-screen.
-- Text contrast must be checked in both themes. Muted labels are intentionally
+- Text contrast must be checked in every theme. Muted labels are intentionally
   quieter than values but must remain readable at 9 px.
 - The strip is a mouse-first taskbar surface; there is currently no keyboard
-  focus model or screen-reader representation. Keep both the `Done` control and
-  the right-click menu available as exit/configuration paths.
+  focus model or screen-reader representation. Keep the right-click menu and
+  hover-out close available as exit paths.
 - Keep the right-click target the full strip, not an individual cell.
 - Do not reduce the strip below the 48 px taskbar height; the two text lines and
   bar need the full content band.
@@ -284,15 +310,16 @@ panel grows to 344 px while Settings is active.
 
 1. Strip at 100%: labels, temperatures, values, and bars align; no cell text
    touches its neighbor.
-2. Five-cell layout at 370 px; strip remains clear of the notification area.
-3. Overview panel at 400 × 272 and Settings panel at 400 × 344; all content
-   fits without clipping.
-4. Dark and light themes both retain hierarchy and contrast.
+2. Five-cell layout at 420 px; strip remains clear of the notification area.
+3. Overview panel at 400 × 272 and Settings panel at 400 × 392; all content
+   fits without clipping, with 6 DIP side margins.
+4. System, Dark, Light, and Glass themes retain hierarchy and contrast.
 5. `mem_mode` and `disk_mode` in `gb` and `percent` do not overflow cells.
-6. Two-GPU layout shows both adapters, mini bars, and the summary footer.
+6. Two-GPU layout shows both adapters as separate cells/chips, mini bars, and
+   the summary footer.
 7. Missing temperatures render as `--°`/`temp --`, never as fabricated values.
 8. Right-click menu, click-to-pin, and leave-to-hide still work after layout
    changes.
 9. Settings controls apply live, save automatically, and survive close/reopen.
-10. Position, offset, widget visibility, theme, accent, refresh, hover delay,
-    memory mode, disk mode, reset, and Done all work.
+10. Position, offset, widget visibility, per-GPU visibility, theme, accent,
+    refresh, hover delay, memory mode, disk mode, reset, and GPU toggles work.

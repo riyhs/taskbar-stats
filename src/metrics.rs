@@ -7,7 +7,9 @@ use windows::Wdk::System::SystemInformation::{
     NtQuerySystemInformation, SystemProcessorPerformanceInformation,
 };
 use windows::Win32::Foundation::{FILETIME, NTSTATUS};
-use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+use windows::Win32::Storage::FileSystem::{
+    GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
+};
 use windows::Win32::System::Performance::{
     PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
     PdhOpenQueryW, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_MORE_DATA,
@@ -15,8 +17,12 @@ use windows::Win32::System::Performance::{
 use windows::Win32::System::SystemInformation::{
     GetTickCount64, GlobalMemoryStatusEx, MEMORYSTATUSEX,
 };
-use windows::Win32::System::Threading::{GetActiveProcessorCount, GetSystemTimes, ALL_PROCESSOR_GROUPS};
-use windows::Win32::System::WindowsProgramming::SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION;
+use windows::Win32::System::Threading::{
+    GetActiveProcessorCount, GetSystemTimes, ALL_PROCESSOR_GROUPS,
+};
+use windows::Win32::System::WindowsProgramming::{
+    DRIVE_FIXED, SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION,
+};
 
 use crate::disk;
 use crate::gpu::{GpuInfo, GpuSampler};
@@ -62,8 +68,8 @@ impl Sampler {
         }
     }
 
-    pub fn gpu_count(&self) -> usize {
-        self.gpu.count()
+    pub fn gpu_names(&self) -> Vec<String> {
+        self.gpu.names()
     }
 
     pub fn sample(&mut self) -> Snapshot {
@@ -90,15 +96,13 @@ impl Sampler {
         }
         self.previous = times;
 
-        let cpu_load = system_load
-            .map(|load| load * 100.0)
-            .unwrap_or_else(|| {
-                if total_all > 0.0 {
-                    (total_busy / total_all * 100.0) as f32
-                } else {
-                    0.0
-                }
-            });
+        let cpu_load = system_load.map(|load| load * 100.0).unwrap_or_else(|| {
+            if total_all > 0.0 {
+                (total_busy / total_all * 100.0) as f32
+            } else {
+                0.0
+            }
+        });
         let (mem_used, mem_total) = memory();
         let (disk_used, disk_total) = disk();
         let cpu_temp = self.temperature.as_ref().and_then(|t| t.read());
@@ -163,9 +167,11 @@ fn cpu_times() -> Vec<CpuTimes> {
         )
     };
     if status.0 < 0 {
-        let needed = (returned as usize / size_of::<SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION>()).max(1);
+        let needed =
+            (returned as usize / size_of::<SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION>()).max(1);
         buffer.resize(needed, SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION::default());
-        let retry_size = (buffer.len() * size_of::<SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION>()) as u32;
+        let retry_size =
+            (buffer.len() * size_of::<SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION>()) as u32;
         let status = unsafe {
             NtQuerySystemInformation(
                 SystemProcessorPerformanceInformation,
@@ -209,15 +215,53 @@ fn memory() -> (u64, u64) {
 fn disk() -> (u64, u64) {
     let mut free = 0u64;
     let mut total = 0u64;
-    let ok = unsafe {
-        GetDiskFreeSpaceExW(
-            w!("C:\\"),
-            None,
-            Some(&mut total),
-            Some(&mut free),
-        )
-    };
-    if ok.is_ok() {
+    let drives = unsafe { GetLogicalDrives() };
+    for letter in 0..26u16 {
+        if drives & (1 << letter) == 0 {
+            continue;
+        }
+        let root = [b'A' as u16 + letter, b':' as u16, b'\\' as u16, 0];
+        if unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) } != DRIVE_FIXED
+            || !disk::volume_has_extents(b'A' as u16 + letter)
+        {
+            continue;
+        }
+        let mut filesystem = [0u16; 16];
+        if unsafe {
+            GetVolumeInformationW(
+                PCWSTR(root.as_ptr()),
+                None,
+                None,
+                None,
+                None,
+                Some(&mut filesystem),
+            )
+        }
+        .is_err()
+        {
+            continue;
+        }
+        let filesystem = String::from_utf16_lossy(&filesystem);
+        if !matches!(filesystem.trim_end_matches('\0'), "NTFS" | "ReFS") {
+            continue;
+        }
+        let mut drive_total = 0u64;
+        let mut drive_free = 0u64;
+        if unsafe {
+            GetDiskFreeSpaceExW(
+                PCWSTR(root.as_ptr()),
+                None,
+                Some(&mut drive_total),
+                Some(&mut drive_free),
+            )
+        }
+        .is_ok()
+        {
+            total = total.saturating_add(drive_total);
+            free = free.saturating_add(drive_free);
+        }
+    }
+    if total > 0 {
         (total.saturating_sub(free), total)
     } else {
         (0, 0)

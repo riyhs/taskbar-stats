@@ -4,6 +4,11 @@ use std::mem::size_of;
 use std::slice;
 
 use windows::core::{w, PCSTR};
+use windows::Wdk::Graphics::Direct3D::{
+    D3DKMTCloseAdapter, D3DKMTOpenAdapterFromLuid, D3DKMTQueryAdapterInfo, D3DKMT_ADAPTER_PERFDATA,
+    D3DKMT_CLOSEADAPTER, D3DKMT_OPENADAPTERFROMLUID, D3DKMT_QUERYADAPTERINFO,
+    KMTQAITYPE_ADAPTERPERFDATA,
+};
 use windows::Win32::Foundation::{FreeLibrary, HANDLE, HMODULE, LUID, NTSTATUS};
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
 use windows::Win32::System::LibraryLoader::{
@@ -13,16 +18,10 @@ use windows::Win32::System::Performance::{
     PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
     PdhOpenQueryW, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_MORE_DATA,
 };
-use windows::Wdk::Graphics::Direct3D::{
-    D3DKMTCloseAdapter, D3DKMTOpenAdapterFromLuid, D3DKMTQueryAdapterInfo, D3DKMT_ADAPTER_PERFDATA,
-    D3DKMT_CLOSEADAPTER, D3DKMT_OPENADAPTERFROMLUID, D3DKMT_QUERYADAPTERINFO,
-    KMTQAITYPE_ADAPTERPERFDATA,
-};
 
 #[derive(Clone, Default)]
 pub struct GpuInfo {
     pub name: String,
-    pub vendor: String,
     pub temp_c: Option<f32>,
     pub load_pct: Option<f32>,
 }
@@ -70,8 +69,11 @@ impl GpuSampler {
         }
     }
 
-    pub fn count(&self) -> usize {
-        self.adapters.len()
+    pub fn names(&self) -> Vec<String> {
+        self.adapters
+            .iter()
+            .map(|adapter| adapter.name.clone())
+            .collect()
     }
 
     pub fn sample(&self) -> Vec<GpuInfo> {
@@ -99,7 +101,6 @@ impl GpuSampler {
                     .or_else(|| adapter_temp(adapter.luid));
                 GpuInfo {
                     name: adapter.name.clone(),
-                    vendor: adapter.vendor.clone(),
                     temp_c: temp,
                     load_pct: load,
                 }

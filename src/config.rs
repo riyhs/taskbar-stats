@@ -14,6 +14,8 @@ pub struct Config {
     pub mem_mode: String,
     #[serde(default = "default_gb")]
     pub disk_mode: String,
+    #[serde(default)]
+    pub gpu_visible: Vec<String>,
 }
 
 fn default_gb() -> String {
@@ -32,6 +34,7 @@ impl Default for Config {
             update_ms: 1000,
             mem_mode: default_gb(),
             disk_mode: default_gb(),
+            gpu_visible: Vec::new(),
         }
     }
 }
@@ -61,6 +64,15 @@ impl Config {
         (cfg, path)
     }
 
+    pub fn gpu_enabled(&self, name: &str) -> bool {
+        self.widgets.iter().any(|widget| widget == "gpu")
+            && (self.gpu_visible.is_empty()
+                || self
+                    .gpu_visible
+                    .iter()
+                    .any(|visible| visible.eq_ignore_ascii_case(name)))
+    }
+
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let body = toml::to_string_pretty(self)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
@@ -71,7 +83,7 @@ impl Config {
         if self.position != "left" && self.position != "right" {
             self.position = "right".into();
         }
-        if self.theme != "system" && self.theme != "dark" && self.theme != "light" {
+        if !matches!(self.theme.as_str(), "system" | "dark" | "light" | "glass") {
             self.theme = "system".into();
         }
         self.offset = self.offset.clamp(-400, 400);
@@ -83,6 +95,17 @@ impl Config {
         if self.disk_mode != "percent" {
             self.disk_mode = "gb".into();
         }
+        self.gpu_visible.retain(|name| !name.trim().is_empty());
+        let mut seen = Vec::new();
+        self.gpu_visible.retain(|name| {
+            let key = name.to_ascii_lowercase();
+            if seen.contains(&key) {
+                false
+            } else {
+                seen.push(key);
+                true
+            }
+        });
 
         let known = ["cpu", "temp", "gputemp", "gpu", "mem", "disk"];
         let mut seen = Vec::new();

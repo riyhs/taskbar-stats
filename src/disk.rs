@@ -7,11 +7,11 @@ use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE,
     IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, OPEN_EXISTING,
 };
-use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::System::Ioctl::{
-    IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery, STORAGE_PROPERTY_QUERY,
-    StorageDeviceTemperatureProperty,
+    PropertyStandardQuery, StorageDeviceTemperatureProperty, IOCTL_STORAGE_QUERY_PROPERTY,
+    STORAGE_PROPERTY_QUERY,
 };
+use windows::Win32::System::IO::DeviceIoControl;
 
 pub fn system_disk_temp() -> Option<f32> {
     let index = system_disk_index().unwrap_or(0);
@@ -22,10 +22,19 @@ pub fn system_disk_temp() -> Option<f32> {
     })
 }
 
+pub fn volume_has_extents(letter: u16) -> bool {
+    volume_disk_indices(letter).is_some_and(|indices| !indices.is_empty())
+}
+
 fn system_disk_index() -> Option<u32> {
+    volume_disk_indices(b'C' as u16).and_then(|indices| indices.first().copied())
+}
+
+fn volume_disk_indices(letter: u16) -> Option<Vec<u32>> {
     unsafe {
         let mut path: Vec<u16> = vec![92, 92, 46, 92];
-        path.extend("C:".encode_utf16());
+        path.push(letter);
+        path.push(b':' as u16);
         path.push(0);
         let handle = CreateFileW(
             PCWSTR(path.as_ptr()),
@@ -53,11 +62,18 @@ fn system_disk_index() -> Option<u32> {
         if result.is_err() || returned < 12 {
             return None;
         }
-        let count = u32::from_ne_bytes(output[0..4].try_into().ok()?);
-        if count == 0 {
-            return None;
+        let count = u32::from_ne_bytes(output[0..4].try_into().ok()?) as usize;
+        let mut indices = Vec::new();
+        for index in 0..count.min(20) {
+            let offset = 8 + index * 24;
+            if offset + 4 > returned as usize {
+                break;
+            }
+            indices.push(u32::from_ne_bytes(
+                output[offset..offset + 4].try_into().ok()?,
+            ));
         }
-        Some(u32::from_ne_bytes(output[8..12].try_into().ok()?))
+        Some(indices)
     }
 }
 
@@ -115,4 +131,3 @@ fn drive_temp(index: u32) -> Option<f32> {
         best.map(|temp| temp as f32)
     }
 }
-

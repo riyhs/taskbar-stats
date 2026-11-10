@@ -1,10 +1,10 @@
+use windows::core::Result;
+use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F;
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER,
     DWRITE_TEXT_ALIGNMENT_TRAILING,
 };
-use windows::Win32::Foundation::HWND;
-use windows::core::Result;
 
 use crate::config::Config;
 use crate::gpu::GpuInfo;
@@ -15,12 +15,13 @@ const STRIP_PAD: f32 = 4.0;
 const STRIP_INNER: f32 = 6.0;
 const STRIP_GAP: f32 = 10.0;
 const STRIP_RADIUS: f32 = 12.0;
-const STRIP_CELL_W: f32 = 62.0;
+const STRIP_CELL_W: f32 = 72.0;
 const LABEL_SIZE: f32 = 9.0;
 const TEMP_SIZE: f32 = 9.0;
 
 pub const PANEL_WIDTH: f32 = 400.0;
-const SETTINGS_HEIGHT: f32 = 344.0;
+pub const PANEL_MARGIN: f32 = 6.0;
+const SETTINGS_HEIGHT: f32 = 392.0;
 const SETTINGS_PAD: f32 = 16.0;
 const SETTINGS_COL_W: f32 = 179.0;
 const SETTINGS_COL2: f32 = SETTINGS_PAD + SETTINGS_COL_W + 10.0;
@@ -29,7 +30,8 @@ const SETTINGS_ROW2: f32 = 104.0;
 const SETTINGS_ROW3: f32 = 152.0;
 const SETTINGS_ROW4: f32 = 200.0;
 const SETTINGS_WIDGETS: f32 = 248.0;
-const SETTINGS_FOOTER: f32 = 304.0;
+const SETTINGS_GPUS: f32 = 296.0;
+const SETTINGS_FOOTER: f32 = 344.0;
 const TAB_W: f32 = 58.0;
 const TAB_H: f32 = 28.0;
 
@@ -52,6 +54,7 @@ pub enum PanelAction {
     ThemeSystem,
     ThemeDark,
     ThemeLight,
+    ThemeGlass,
     MemoryGb,
     MemoryPercent,
     DiskGb,
@@ -67,11 +70,10 @@ pub enum PanelAction {
     OffsetPlus,
     Accent(usize),
     WidgetCpu,
-    WidgetGpu,
     WidgetMem,
     WidgetDisk,
+    Gpu(usize),
     Reset,
-    Done,
 }
 
 pub fn panel_height(tab: PanelTab) -> f32 {
@@ -105,24 +107,25 @@ fn segment_rect(column_x: f32, row_y: f32, count: usize, index: usize) -> Rect {
     )
 }
 
-fn widget_rect(index: usize) -> Rect {
+fn full_row_rect(index: usize, count: usize, row_y: f32) -> Rect {
     let gap = 6.0;
-    let width = (PANEL_WIDTH - 2.0 * SETTINGS_PAD - 3.0 * gap) / 4.0;
+    let width = (PANEL_WIDTH - 2.0 * SETTINGS_PAD - (count as f32 - 1.0) * gap) / count as f32;
     (
         SETTINGS_PAD + index as f32 * (width + gap),
-        SETTINGS_WIDGETS + 14.0,
+        row_y + 14.0,
         width,
         24.0,
     )
 }
 
-fn settings_rect(action: PanelAction) -> Option<Rect> {
+fn settings_rect(action: PanelAction, gpu_count: usize) -> Option<Rect> {
     match action {
         PanelAction::PositionLeft => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW1, 2, 0)),
         PanelAction::PositionRight => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW1, 2, 1)),
-        PanelAction::ThemeSystem => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 3, 0)),
-        PanelAction::ThemeDark => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 3, 1)),
-        PanelAction::ThemeLight => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 3, 2)),
+        PanelAction::ThemeSystem => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 0)),
+        PanelAction::ThemeDark => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 1)),
+        PanelAction::ThemeLight => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 2)),
+        PanelAction::ThemeGlass => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 3)),
         PanelAction::MemoryGb => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW2, 2, 0)),
         PanelAction::MemoryPercent => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW2, 2, 1)),
         PanelAction::DiskGb => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW2, 2, 0)),
@@ -147,14 +150,25 @@ fn settings_rect(action: PanelAction) -> Option<Rect> {
             }
             let total = ACCENTS.len() as f32 * 20.0 + (ACCENTS.len() as f32 - 1.0) * 5.0;
             let start = SETTINGS_COL2 + (SETTINGS_COL_W - total) / 2.0;
-            Some((start + index as f32 * 25.0, SETTINGS_ROW4 + 16.0, 20.0, 20.0))
+            Some((
+                start + index as f32 * 25.0,
+                SETTINGS_ROW4 + 16.0,
+                20.0,
+                20.0,
+            ))
         }
-        PanelAction::WidgetCpu => Some(widget_rect(0)),
-        PanelAction::WidgetGpu => Some(widget_rect(1)),
-        PanelAction::WidgetMem => Some(widget_rect(2)),
-        PanelAction::WidgetDisk => Some(widget_rect(3)),
-        PanelAction::Reset => Some((PANEL_WIDTH - SETTINGS_PAD - 70.0, SETTINGS_FOOTER, 70.0, 24.0)),
-        PanelAction::Done => Some((SETTINGS_PAD, SETTINGS_FOOTER, 60.0, 24.0)),
+        PanelAction::WidgetCpu => Some(full_row_rect(0, 3, SETTINGS_WIDGETS)),
+        PanelAction::WidgetMem => Some(full_row_rect(1, 3, SETTINGS_WIDGETS)),
+        PanelAction::WidgetDisk => Some(full_row_rect(2, 3, SETTINGS_WIDGETS)),
+        PanelAction::Gpu(index) if index < gpu_count => {
+            Some(full_row_rect(index, gpu_count, SETTINGS_GPUS))
+        }
+        PanelAction::Reset => Some((
+            PANEL_WIDTH - SETTINGS_PAD - 70.0,
+            SETTINGS_FOOTER,
+            70.0,
+            24.0,
+        )),
         _ => None,
     }
 }
@@ -165,6 +179,7 @@ const SETTINGS_ACTIONS: &[PanelAction] = &[
     PanelAction::ThemeSystem,
     PanelAction::ThemeDark,
     PanelAction::ThemeLight,
+    PanelAction::ThemeGlass,
     PanelAction::MemoryGb,
     PanelAction::MemoryPercent,
     PanelAction::DiskGb,
@@ -185,14 +200,12 @@ const SETTINGS_ACTIONS: &[PanelAction] = &[
     PanelAction::Accent(4),
     PanelAction::Accent(5),
     PanelAction::WidgetCpu,
-    PanelAction::WidgetGpu,
     PanelAction::WidgetMem,
     PanelAction::WidgetDisk,
     PanelAction::Reset,
-    PanelAction::Done,
 ];
 
-pub fn action_at(tab: PanelTab, x: f32, y: f32) -> Option<PanelAction> {
+pub fn action_at(tab: PanelTab, x: f32, y: f32, gpu_count: usize) -> Option<PanelAction> {
     if contains(tab_rect(PanelTab::Overview), x, y) {
         return Some(PanelAction::TabOverview);
     }
@@ -205,29 +218,28 @@ pub fn action_at(tab: PanelTab, x: f32, y: f32) -> Option<PanelAction> {
     SETTINGS_ACTIONS
         .iter()
         .copied()
-        .find(|action| settings_rect(*action).is_some_and(|rect| contains(rect, x, y)))
+        .find(|action| settings_rect(*action, gpu_count).is_some_and(|rect| contains(rect, x, y)))
+        .or_else(|| {
+            (0..gpu_count).find_map(|index| {
+                let action = PanelAction::Gpu(index);
+                settings_rect(action, gpu_count)
+                    .is_some_and(|rect| contains(rect, x, y))
+                    .then_some(action)
+            })
+        })
 }
 
 pub fn strip_width_dip(config: &Config, gpu_count: usize) -> i32 {
     let count = strip_cell_count(config, gpu_count) as f32;
-    (2.0 * STRIP_PAD
-        + 2.0 * STRIP_INNER
-        + count * STRIP_CELL_W
-        + (count - 1.0) * STRIP_GAP)
-        .round() as i32
+    (2.0 * STRIP_PAD + 2.0 * STRIP_INNER + count * STRIP_CELL_W + (count - 1.0) * STRIP_GAP).round()
+        as i32
 }
 
 fn strip_cell_count(config: &Config, gpu_count: usize) -> usize {
     config
         .widgets
         .iter()
-        .map(|widget| {
-            if widget == "gpu" {
-                gpu_count.max(1)
-            } else {
-                1
-            }
-        })
+        .map(|widget| if widget == "gpu" { gpu_count } else { 1 })
         .sum::<usize>()
         .max(1)
 }
@@ -265,7 +277,7 @@ pub fn draw_strip(
     width: f32,
     height: f32,
 ) -> Result<()> {
-    let p = palette(light, &config.accent);
+    let p = palette(light, config.theme == "glass", &config.accent);
     renderer.begin()?;
 
     renderer.fill_round(
@@ -364,40 +376,24 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
                 fraction: snapshot.cpu_load / 100.0,
             }),
             "gpu" => {
-                if snapshot.gpus.is_empty() {
+                for gpu in &snapshot.gpus {
+                    let load = gpu.load_pct.unwrap_or(0.0);
                     cells.push(StripCell {
-                        label: "GPU".into(),
-                        value: "--".into(),
-                        temp: None,
-                        value_color: p.muted,
-                        bar_color: p.muted,
-                        fraction: 0.0,
+                        label: short_name(&gpu.name),
+                        value: if gpu.load_pct.is_some() {
+                            format!("{load:.0}%")
+                        } else {
+                            "--".into()
+                        },
+                        temp: gpu.temp_c,
+                        value_color: if gpu.load_pct.is_some() {
+                            load_text_color(load, p)
+                        } else {
+                            p.muted
+                        },
+                        bar_color: load_fill_color(load, p),
+                        fraction: load / 100.0,
                     });
-                } else {
-                    let multiple = snapshot.gpus.len() > 1;
-                    for gpu in &snapshot.gpus {
-                        let load = gpu.load_pct.unwrap_or(0.0);
-                        cells.push(StripCell {
-                            label: if multiple {
-                                gpu.vendor.clone()
-                            } else {
-                                "GPU".into()
-                            },
-                            value: if gpu.load_pct.is_some() {
-                                format!("{load:.0}%")
-                            } else {
-                                "--".into()
-                            },
-                            temp: gpu.temp_c,
-                            value_color: if gpu.load_pct.is_some() {
-                                load_text_color(load, p)
-                            } else {
-                                p.muted
-                            },
-                            bar_color: load_fill_color(load, p),
-                            fraction: load / 100.0,
-                        });
-                    }
                 }
             }
             "temp" => {
@@ -501,10 +497,25 @@ pub fn draw_panel(
     height: f32,
     tab: PanelTab,
     hover: Option<PanelAction>,
+    gpu_names: &[String],
+    background: Option<&[u8]>,
+    background_width: u32,
+    background_height: u32,
 ) -> Result<()> {
-    let p = palette(light, &config.accent);
+    let p = palette(light, config.theme == "glass", &config.accent);
     renderer.begin()?;
-
+    renderer.translate(PANEL_MARGIN, 0.0);
+    if let Some(pixels) = background {
+        renderer.draw_background(
+            pixels,
+            background_width,
+            background_height,
+            0.0,
+            0.0,
+            width,
+            height,
+        )?;
+    }
     renderer.fill_round(0.0, 0.0, width, height, 18.0, p.bg);
     renderer.stroke_round(0.5, 0.5, width - 1.0, height - 1.0, 17.5, p.border, 1.0);
     renderer.fill_round(18.0, 1.0, width - 36.0, 1.0, 0.5, p.highlight);
@@ -544,7 +555,7 @@ pub fn draw_panel(
     );
 
     if tab == PanelTab::Settings {
-        draw_settings(renderer, config, hover, &p);
+        draw_settings(renderer, config, hover, gpu_names, &p);
         return renderer.end(hwnd);
     }
 
@@ -646,7 +657,7 @@ pub fn draw_panel(
     draw_card_content(
         renderer,
         disk_card,
-        "DISK C:",
+        "DISK",
         &disk_value,
         &format!("{:.0}G free \u{00B7} {disk_temp}", gib(free)),
         load_text_color(disk_pct * 100.0, &p),
@@ -689,9 +700,9 @@ pub fn draw_panel(
         draw_card_content(
             renderer,
             gpu_card,
-            "GPU",
+            &short_name(&gpu.name),
             &load_text,
-            &format!("{gpu_temp} \u{00B7} {}", short_name(&gpu.name)),
+            &gpu_temp,
             if gpu.load_pct.is_some() {
                 load_text_color(load, &p)
             } else {
@@ -750,6 +761,7 @@ fn draw_settings(
     renderer: &Renderer,
     config: &Config,
     hover: Option<PanelAction>,
+    gpu_names: &[String],
     p: &Palette,
 ) {
     draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW1, "POSITION", p);
@@ -761,6 +773,7 @@ fn draw_settings(
     draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW4, "OFFSET", p);
     draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW4, "ACCENT", p);
     draw_group(renderer, SETTINGS_PAD, SETTINGS_WIDGETS, "WIDGETS", p);
+    draw_group(renderer, SETTINGS_PAD, SETTINGS_GPUS, "GPUS", p);
 
     let position = if config.position == "left" {
         Some(0)
@@ -773,6 +786,7 @@ fn draw_settings(
         &["Left", "Right"],
         position,
         hover,
+        gpu_names.len(),
         p,
     );
 
@@ -780,6 +794,7 @@ fn draw_settings(
         "system" => Some(0),
         "dark" => Some(1),
         "light" => Some(2),
+        "glass" => Some(3),
         _ => None,
     };
     draw_segments(
@@ -788,10 +803,12 @@ fn draw_settings(
             PanelAction::ThemeSystem,
             PanelAction::ThemeDark,
             PanelAction::ThemeLight,
+            PanelAction::ThemeGlass,
         ],
-        &["System", "Dark", "Light"],
+        &["System", "Dark", "Light", "Glass"],
         theme,
         hover,
+        gpu_names.len(),
         p,
     );
 
@@ -806,6 +823,7 @@ fn draw_settings(
         &["GB", "%"],
         memory,
         hover,
+        gpu_names.len(),
         p,
     );
 
@@ -820,6 +838,7 @@ fn draw_settings(
         &["GB", "%"],
         disk,
         hover,
+        gpu_names.len(),
         p,
     );
 
@@ -839,6 +858,7 @@ fn draw_settings(
         &["0.5s", "1s", "2s"],
         refresh,
         hover,
+        gpu_names.len(),
         p,
     );
 
@@ -860,10 +880,11 @@ fn draw_settings(
         &["0", "150", "220", "400"],
         delay,
         hover,
+        gpu_names.len(),
         p,
     );
 
-    if let Some(rect) = settings_rect(PanelAction::OffsetMinus) {
+    if let Some(rect) = settings_rect(PanelAction::OffsetMinus, gpu_names.len()) {
         draw_chip(
             renderer,
             rect,
@@ -874,7 +895,7 @@ fn draw_settings(
             12.0,
         );
     }
-    if let Some(rect) = settings_rect(PanelAction::OffsetPlus) {
+    if let Some(rect) = settings_rect(PanelAction::OffsetPlus, gpu_names.len()) {
         draw_chip(
             renderer,
             rect,
@@ -898,7 +919,7 @@ fn draw_settings(
     );
 
     for (index, hex) in ACCENTS.iter().enumerate() {
-        let Some((x, y, w, h)) = settings_rect(PanelAction::Accent(index)) else {
+        let Some((x, y, w, h)) = settings_rect(PanelAction::Accent(index), gpu_names.len()) else {
             continue;
         };
         let selected = config.accent.eq_ignore_ascii_case(hex);
@@ -919,29 +940,54 @@ fn draw_settings(
 
     for (action, label, widget) in [
         (PanelAction::WidgetCpu, "CPU", "cpu"),
-        (PanelAction::WidgetGpu, "GPU", "gpu"),
         (PanelAction::WidgetMem, "MEM", "mem"),
         (PanelAction::WidgetDisk, "DISK", "disk"),
     ] {
-        let Some(rect) = settings_rect(action) else {
+        let Some(rect) = settings_rect(action, gpu_names.len()) else {
             continue;
         };
         let selected = config.widgets.iter().any(|item| item == widget);
-        draw_chip(renderer, rect, label, selected, hover == Some(action), p, 9.0);
-    }
-
-    if let Some(rect) = settings_rect(PanelAction::Done) {
         draw_chip(
             renderer,
             rect,
-            "Done",
-            false,
-            hover == Some(PanelAction::Done),
+            label,
+            selected,
+            hover == Some(action),
             p,
             9.0,
         );
     }
-    if let Some(rect) = settings_rect(PanelAction::Reset) {
+
+    if gpu_names.is_empty() {
+        renderer.text_left_weight(
+            "No GPUs detected",
+            SETTINGS_PAD,
+            SETTINGS_GPUS + 18.0,
+            160.0,
+            14.0,
+            9.0,
+            p.muted,
+            DWRITE_FONT_WEIGHT_NORMAL,
+        );
+    } else {
+        for (index, name) in gpu_names.iter().enumerate() {
+            let Some(rect) = settings_rect(PanelAction::Gpu(index), gpu_names.len()) else {
+                continue;
+            };
+            let selected = config.gpu_enabled(name);
+            draw_chip(
+                renderer,
+                rect,
+                &short_name(name),
+                selected,
+                hover == Some(PanelAction::Gpu(index)),
+                p,
+                9.0,
+            );
+        }
+    }
+
+    if let Some(rect) = settings_rect(PanelAction::Reset, gpu_names.len()) {
         draw_chip(
             renderer,
             rect,
@@ -954,7 +1000,7 @@ fn draw_settings(
     }
     renderer.text_left_weight(
         "Changes save automatically",
-        SETTINGS_PAD + 68.0,
+        SETTINGS_PAD,
         SETTINGS_FOOTER + 6.0,
         218.0,
         14.0,
@@ -983,10 +1029,11 @@ fn draw_segments(
     labels: &[&str],
     selected: Option<usize>,
     hover: Option<PanelAction>,
+    gpu_count: usize,
     p: &Palette,
 ) {
     for (index, (action, label)) in actions.iter().zip(labels.iter()).enumerate() {
-        let Some(rect) = settings_rect(*action) else {
+        let Some(rect) = settings_rect(*action, gpu_count) else {
             continue;
         };
         draw_chip(
@@ -1229,20 +1276,45 @@ fn draw_core_bars(renderer: &Renderer, card: Card, cores: &[f32], p: &Palette) {
         let bx = x + i as f32 * (bar_w + gap);
         renderer.fill_round(bx, y, bar_w, 4.0, 1.5, p.track);
         let h = (4.0 * (load / 100.0).clamp(0.0, 1.0)).max(1.0);
-        renderer.fill_round(
-            bx,
-            y + 4.0 - h,
-            bar_w,
-            h,
-            1.5,
-            load_fill_color(*load, p),
-        );
+        renderer.fill_round(bx, y + 4.0 - h, bar_w, h, 1.5, load_fill_color(*load, p));
     }
 }
 
-fn palette(light: bool, accent_hex: &str) -> Palette {
+fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
     let accent = accent_color(accent_hex);
-    if light {
+    if glass {
+        if light {
+            Palette {
+                bg: rgb(248, 248, 252, 0.62),
+                card: rgb(255, 255, 255, 0.30),
+                border: rgb(0, 0, 0, 0.13),
+                track: rgb(0, 0, 0, 0.10),
+                muted: rgb(90, 90, 100, 1.0),
+                secondary: rgb(55, 55, 65, 1.0),
+                text: rgb(18, 18, 22, 1.0),
+                accent,
+                good: rgb(24, 140, 82, 1.0),
+                warn: rgb(182, 106, 14, 1.0),
+                bad: rgb(184, 40, 40, 1.0),
+                highlight: rgb(255, 255, 255, 0.70),
+            }
+        } else {
+            Palette {
+                bg: rgb(14, 14, 19, 0.62),
+                card: rgb(255, 255, 255, 0.075),
+                border: rgb(255, 255, 255, 0.15),
+                track: rgb(255, 255, 255, 0.10),
+                muted: rgb(155, 155, 165, 1.0),
+                secondary: rgb(198, 198, 208, 1.0),
+                text: rgb(250, 250, 254, 1.0),
+                accent,
+                good: rgb(76, 200, 126, 1.0),
+                warn: rgb(245, 166, 65, 1.0),
+                bad: rgb(245, 92, 92, 1.0),
+                highlight: rgb(255, 255, 255, 0.12),
+            }
+        }
+    } else if light {
         Palette {
             bg: rgb(250, 250, 252, 0.98),
             card: rgb(0, 0, 0, 0.035),
@@ -1335,16 +1407,30 @@ fn label_advance(label: &str, size: f32) -> f32 {
         "INTEL" => 2.75,
         "NVIDIA" => 3.45,
         "AMD" => 2.15,
-        _ => label.chars().count() as f32 * 0.68,
+        _ => label.chars().count() as f32 * 0.56,
     };
     units * size
 }
 
 fn short_name(name: &str) -> String {
     let mut name = name.trim().to_string();
-    for prefix in ["NVIDIA ", "GeForce ", "AMD ", "Radeon ", "Intel(R) ", "Intel "] {
-        if let Some(rest) = name.strip_prefix(prefix) {
-            name = rest.to_string();
+    loop {
+        let mut changed = false;
+        for prefix in [
+            "NVIDIA ",
+            "GeForce ",
+            "AMD ",
+            "Radeon ",
+            "Intel(R) ",
+            "Intel ",
+        ] {
+            if let Some(rest) = name.strip_prefix(prefix) {
+                name = rest.to_string();
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
         }
     }
     name = name.replace("(R)", "").replace("(TM)", "");

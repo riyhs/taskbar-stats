@@ -3,21 +3,20 @@ use std::ffi::c_void;
 use std::mem::size_of;
 use std::path::PathBuf;
 
-use windows::core::{w, PCWSTR, Result};
+use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{
     GetLastError, BOOL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, ValidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    GetMonitorInfoW, MonitorFromWindow, ValidateRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Registry::{
-    RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD,
-};
+use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::capture;
 use crate::config::Config;
 use crate::logging;
 use crate::metrics::{Sampler, Snapshot};
@@ -59,13 +58,7 @@ pub fn run() -> Result<()> {
         let hinstance = HINSTANCE(module.0);
         register_classes(hinstance);
 
-        let hidden = create_window(
-            WS_EX_TOOLWINDOW,
-            HOST_CLASS,
-            WS_OVERLAPPED,
-            None,
-            hinstance,
-        )?;
+        let hidden = create_window(WS_EX_TOOLWINDOW, HOST_CLASS, WS_OVERLAPPED, None, hinstance)?;
         let strip = create_window(
             WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             STRIP_CLASS,
@@ -106,6 +99,9 @@ pub fn run() -> Result<()> {
             hide_timer: false,
             taskbar_created,
             light: false,
+            glass_bg: None,
+            glass_bg_w: 0,
+            glass_bg_h: 0,
         };
 
         APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -125,7 +121,11 @@ pub fn run() -> Result<()> {
 }
 
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
-    APP.with(|cell| cell.try_borrow_mut().ok().and_then(|mut guard| guard.as_mut().map(f)))
+    APP.with(|cell| {
+        cell.try_borrow_mut()
+            .ok()
+            .and_then(|mut guard| guard.as_mut().map(f))
+    })
 }
 
 struct App {
@@ -151,6 +151,9 @@ struct App {
     hide_timer: bool,
     taskbar_created: u32,
     light: bool,
+    glass_bg: Option<Vec<u8>>,
+    glass_bg_w: u32,
+    glass_bg_h: u32,
 }
 
 impl App {
@@ -172,12 +175,7 @@ impl App {
             }
         }
         unsafe {
-            SetTimer(
-                self.hidden,
-                TIMER_UPDATE,
-                self.config.update_ms,
-                None,
-            );
+            SetTimer(self.hidden, TIMER_UPDATE, self.config.update_ms, None);
         }
     }
 
@@ -223,12 +221,7 @@ impl App {
                 self.track_leave(hwnd);
                 if !self.popup_visible && !self.pinned && !self.hover_timer {
                     unsafe {
-                        SetTimer(
-                            self.strip,
-                            TIMER_HOVER,
-                            self.config.hover_delay_ms,
-                            None,
-                        );
+                        SetTimer(self.strip, TIMER_HOVER, self.config.hover_delay_ms, None);
                     }
                     self.hover_timer = true;
                 }
@@ -249,6 +242,9 @@ impl App {
             WM_TIMER => {
                 match wparam.0 {
                     TIMER_HOVER => {
+                        unsafe {
+                            let _ = KillTimer(self.strip, TIMER_HOVER);
+                        }
                         self.hover_timer = false;
                         if self.cursor_over(self.strip) {
                             self.show_popup(false);
@@ -304,7 +300,7 @@ impl App {
                     self.hide_timer = false;
                 }
                 let (x, y) = self.panel_point(lparam);
-                let hover = ui::action_at(self.panel_tab, x, y);
+                let hover = ui::action_at(self.panel_tab, x, y, self.sampler.gpu_names().len());
                 if hover != self.panel_hover {
                     self.panel_hover = hover;
                     self.render_popup();
@@ -324,10 +320,10 @@ impl App {
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
             WM_LBUTTONUP => {
                 let (x, y) = self.panel_point(lparam);
-                if let Some(action) = ui::action_at(self.panel_tab, x, y) {
+                if let Some(action) =
+                    ui::action_at(self.panel_tab, x, y, self.sampler.gpu_names().len())
+                {
                     self.handle_panel_action(action);
-                } else if self.panel_tab == ui::PanelTab::Settings {
-                    // Keep the settings surface open when a click lands between controls.
                 } else if self.pinned {
                     self.hide_popup();
                 } else {
@@ -352,11 +348,80 @@ impl App {
         let (x, y) = client_point(lparam);
         let dpi = self.taskbar.map(|tb| tb.dpi).unwrap_or(96).max(96) as f32;
         let scale = 96.0 / dpi;
-        (x * scale, y * scale)
+        (x * scale - ui::PANEL_MARGIN, y * scale)
+    }
+
+    fn filter_snapshot(&self, snapshot: &mut Snapshot) {
+        if !self.config.widgets.iter().any(|widget| widget == "gpu") {
+            snapshot.gpus.clear();
+        } else if !self.config.gpu_visible.is_empty() {
+            snapshot.gpus.retain(|gpu| {
+                self.config
+                    .gpu_visible
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&gpu.name))
+            });
+        }
+    }
+
+    fn refresh_snapshot(&mut self) {
+        let mut snapshot = self.sampler.sample();
+        self.filter_snapshot(&mut snapshot);
+        self.snapshot = snapshot;
+    }
+
+    fn visible_gpu_count(&self) -> usize {
+        if !self.config.widgets.iter().any(|widget| widget == "gpu") {
+            return 0;
+        }
+        let names = self.sampler.gpu_names();
+        if self.config.gpu_visible.is_empty() {
+            names.len()
+        } else {
+            names
+                .iter()
+                .filter(|name| self.config.gpu_enabled(name))
+                .count()
+        }
+    }
+
+    fn capture_glass_background(&mut self, x: i32, y: i32, width: i32, height: i32, dpi: u32) {
+        self.glass_bg = None;
+        if self.config.theme != "glass" || width <= 0 || height <= 0 {
+            return;
+        }
+        let margin = (ui::PANEL_MARGIN * dpi as f32 / 96.0).round() as i32;
+        let content_width = width - 2 * margin;
+        if content_width <= 0 {
+            return;
+        }
+        let Some(mut frame) = capture::screen_bgra(x + margin, y, content_width, height) else {
+            return;
+        };
+        let blur_radius = ((14.0 * dpi as f32 / 96.0).round() as usize).max(1);
+        capture::blur(
+            &mut frame,
+            content_width as usize,
+            height as usize,
+            blur_radius,
+        );
+        let corner_radius = ((18.0 * dpi as f32 / 96.0).round() as usize)
+            .min(content_width as usize / 2)
+            .min(height as usize / 2)
+            .max(1);
+        capture::round_corners(
+            &mut frame,
+            content_width as usize,
+            height as usize,
+            corner_radius,
+        );
+        self.glass_bg = Some(frame);
+        self.glass_bg_w = content_width as u32;
+        self.glass_bg_h = height as u32;
     }
 
     fn sample_and_render(&mut self) {
-        self.snapshot = self.sampler.sample();
+        self.refresh_snapshot();
         self.render_strip();
         if self.popup_visible {
             self.render_popup();
@@ -367,11 +432,10 @@ impl App {
         if self.strip_w_px <= 0 || self.strip_h_px <= 0 {
             return;
         }
-        if self.strip_renderer.resize(
-            self.strip_w_px,
-            self.strip_h_px,
-            self.strip_dpi,
-        ).is_err()
+        if self
+            .strip_renderer
+            .resize(self.strip_w_px, self.strip_h_px, self.strip_dpi)
+            .is_err()
         {
             return;
         }
@@ -393,11 +457,12 @@ impl App {
     fn render_popup(&mut self) {
         let Some(tb) = self.taskbar else { return };
         let dpi = tb.dpi.max(96);
-        let width = (ui::PANEL_WIDTH * dpi as f32 / 96.0).round() as i32;
+        let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
         let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
         if self.popup_renderer.resize(width, height, dpi).is_err() {
             return;
         }
+        let gpu_names = self.sampler.gpu_names();
         if let Err(error) = ui::draw_panel(
             &self.popup_renderer,
             self.popup,
@@ -408,6 +473,10 @@ impl App {
             ui::panel_height(self.panel_tab),
             self.panel_tab,
             self.panel_hover,
+            &gpu_names,
+            self.glass_bg.as_deref(),
+            self.glass_bg_w,
+            self.glass_bg_h,
         ) {
             logging::write(&format!("popup render failed: {error}"));
         }
@@ -418,7 +487,7 @@ impl App {
         if !unsafe { IsWindow(self.strip).as_bool() } {
             return;
         }
-        let width_dip = ui::strip_width_dip(&self.config, self.sampler.gpu_count());
+        let width_dip = ui::strip_width_dip(&self.config, self.visible_gpu_count());
         let (x, _, width, height) = taskbar::place(
             self.strip,
             &tb,
@@ -431,11 +500,7 @@ impl App {
         self.strip_dpi = tb.dpi;
         logging::write(&format!(
             "strip placed: x={} y=0 w={} h={} dpi={} taskbar_w={}",
-            x,
-            width,
-            height,
-            tb.dpi,
-            tb.width
+            x, width, height, tb.dpi, tb.width
         ));
     }
 
@@ -449,6 +514,12 @@ impl App {
         let Some(tb) = self.taskbar else { return };
         self.pinned = pin;
         self.panel_hover = None;
+        if self.hover_timer {
+            unsafe {
+                let _ = KillTimer(self.strip, TIMER_HOVER);
+            }
+            self.hover_timer = false;
+        }
         if self.hide_timer {
             unsafe {
                 let _ = KillTimer(self.strip, TIMER_HIDE);
@@ -456,7 +527,7 @@ impl App {
             self.hide_timer = false;
         }
         let dpi = tb.dpi.max(96);
-        let width = (ui::PANEL_WIDTH * dpi as f32 / 96.0).round() as i32;
+        let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
         let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
 
         let mut strip_rect = RECT::default();
@@ -481,6 +552,12 @@ impl App {
         } else {
             taskbar_rect.bottom + gap
         };
+        if self.config.theme == "glass" && self.popup_visible {
+            unsafe {
+                let _ = ShowWindow(self.popup, SW_HIDE);
+            }
+        }
+        self.capture_glass_background(x, y, width, height, dpi);
         unsafe {
             let _ = SetWindowPos(
                 self.popup,
@@ -540,10 +617,7 @@ impl App {
                 return false;
             }
         }
-        point.x >= rect.left
-            && point.x < rect.right
-            && point.y >= rect.top
-            && point.y < rect.bottom
+        point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
     }
 
     fn reattach(&mut self) {
@@ -598,30 +672,26 @@ impl App {
             "dark" => false,
             _ => system_uses_light(),
         };
+        if self.config.theme != "glass" {
+            self.glass_bg = None;
+        }
     }
 
     fn handle_panel_action(&mut self, action: ui::PanelAction) {
         match action {
             ui::PanelAction::TabOverview => {
                 self.panel_tab = ui::PanelTab::Overview;
-                self.pinned = true;
-                self.show_popup(true);
+                self.show_popup(self.pinned);
                 return;
             }
             ui::PanelAction::TabSettings => {
                 self.panel_tab = ui::PanelTab::Settings;
-                self.pinned = true;
-                self.show_popup(true);
-                return;
-            }
-            ui::PanelAction::Done => {
-                self.hide_popup();
+                self.show_popup(self.pinned);
                 return;
             }
             _ => {}
         }
 
-        self.pinned = true;
         let before = self.config.clone();
         match action {
             ui::PanelAction::PositionLeft => self.config.position = "left".into(),
@@ -629,6 +699,7 @@ impl App {
             ui::PanelAction::ThemeSystem => self.config.theme = "system".into(),
             ui::PanelAction::ThemeDark => self.config.theme = "dark".into(),
             ui::PanelAction::ThemeLight => self.config.theme = "light".into(),
+            ui::PanelAction::ThemeGlass => self.config.theme = "glass".into(),
             ui::PanelAction::MemoryGb => self.config.mem_mode = "gb".into(),
             ui::PanelAction::MemoryPercent => self.config.mem_mode = "percent".into(),
             ui::PanelAction::DiskGb => self.config.disk_mode = "gb".into(),
@@ -652,9 +723,14 @@ impl App {
                 }
             }
             ui::PanelAction::WidgetCpu => toggle_widget(&mut self.config, "cpu"),
-            ui::PanelAction::WidgetGpu => toggle_widget(&mut self.config, "gpu"),
             ui::PanelAction::WidgetMem => toggle_widget(&mut self.config, "mem"),
             ui::PanelAction::WidgetDisk => toggle_widget(&mut self.config, "disk"),
+            ui::PanelAction::Gpu(index) => {
+                let names = self.sampler.gpu_names();
+                if let Some(name) = names.get(index) {
+                    toggle_gpu(&mut self.config, name, &names);
+                }
+            }
             ui::PanelAction::Reset => self.config = Config::default(),
             _ => {}
         }
@@ -666,25 +742,23 @@ impl App {
         self.refresh_theme();
         if before.update_ms != self.config.update_ms {
             unsafe {
-                SetTimer(
-                    self.hidden,
-                    TIMER_UPDATE,
-                    self.config.update_ms,
-                    None,
-                );
+                SetTimer(self.hidden, TIMER_UPDATE, self.config.update_ms, None);
             }
         }
 
         let layout_changed = before.position != self.config.position
             || before.offset != self.config.offset
-            || before.widgets != self.config.widgets;
+            || before.widgets != self.config.widgets
+            || before.gpu_visible != self.config.gpu_visible;
+        let theme_changed = before.theme != self.config.theme;
+        self.refresh_snapshot();
         if layout_changed {
             self.position_strip();
         }
         self.render_strip();
         if self.popup_visible {
-            if layout_changed {
-                self.show_popup(true);
+            if layout_changed || theme_changed {
+                self.show_popup(self.pinned);
             } else {
                 self.render_popup();
             }
@@ -731,12 +805,7 @@ impl App {
         self.refresh_theme();
         self.position_strip();
         unsafe {
-            SetTimer(
-                self.hidden,
-                TIMER_UPDATE,
-                self.config.update_ms,
-                None,
-            );
+            SetTimer(self.hidden, TIMER_UPDATE, self.config.update_ms, None);
         }
         self.sample_and_render();
     }
@@ -746,6 +815,55 @@ fn client_point(lparam: LPARAM) -> (f32, f32) {
     let x = (lparam.0 & 0xFFFF) as u16 as i16 as f32;
     let y = ((lparam.0 >> 16) & 0xFFFF) as u16 as i16 as f32;
     (x, y)
+}
+
+fn ordered_widgets(widgets: &[String]) -> Vec<String> {
+    let order = ["cpu", "gpu", "mem", "disk"];
+    let mut next = Vec::new();
+    for item in order {
+        if widgets.iter().any(|widget| widget == item) {
+            next.push(item.to_string());
+        }
+    }
+    for item in widgets {
+        if !order.contains(&item.as_str()) && !next.contains(item) {
+            next.push(item.clone());
+        }
+    }
+    next
+}
+
+fn toggle_gpu(config: &mut Config, name: &str, names: &[String]) {
+    if config.gpu_enabled(name) {
+        if config.gpu_visible.is_empty() {
+            config.gpu_visible = names
+                .iter()
+                .filter(|candidate| !candidate.eq_ignore_ascii_case(name))
+                .cloned()
+                .collect();
+        } else {
+            config
+                .gpu_visible
+                .retain(|candidate| !candidate.eq_ignore_ascii_case(name));
+        }
+        if config.gpu_visible.is_empty() {
+            config.widgets.retain(|widget| widget != "gpu");
+        }
+    } else {
+        if !config.widgets.iter().any(|widget| widget == "gpu") {
+            config.widgets.push("gpu".to_string());
+        }
+        if config.gpu_visible.is_empty() {
+            config.gpu_visible = vec![name.to_string()];
+        } else if !config
+            .gpu_visible
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(name))
+        {
+            config.gpu_visible.push(name.to_string());
+        }
+    }
+    config.widgets = ordered_widgets(&config.widgets);
 }
 
 fn toggle_widget(config: &mut Config, widget: &str) {
@@ -795,14 +913,20 @@ fn system_uses_light() -> bool {
 }
 
 fn register_classes(hinstance: HINSTANCE) {
-    let cursor = unsafe {
-        LoadCursorW(HINSTANCE::default(), IDC_ARROW).unwrap_or_default()
-    };
+    let cursor = unsafe { LoadCursorW(HINSTANCE::default(), IDC_ARROW).unwrap_or_default() };
     type WndProc = unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT;
     let classes: [(PCWSTR, WndProc, WNDCLASS_STYLES); 3] = [
         (HOST_CLASS, host_wndproc as WndProc, WNDCLASS_STYLES(0)),
-        (STRIP_CLASS, strip_wndproc as WndProc, CS_HREDRAW | CS_VREDRAW),
-        (POPUP_CLASS, popup_wndproc as WndProc, CS_HREDRAW | CS_VREDRAW),
+        (
+            STRIP_CLASS,
+            strip_wndproc as WndProc,
+            CS_HREDRAW | CS_VREDRAW,
+        ),
+        (
+            POPUP_CLASS,
+            popup_wndproc as WndProc,
+            CS_HREDRAW | CS_VREDRAW,
+        ),
     ];
     for (class, proc, style) in classes {
         let window_class = WNDCLASSEXW {

@@ -58,11 +58,12 @@ The app exits through the strip context menu: right-click the strip and choose
 | `src/main.rs` | Process setup: logging, panic hook, per-monitor DPI, COM |
 | `src/app.rs` | Windows, message loop, timers, hover/pin behavior, settings actions, rendering orchestration |
 | `src/taskbar.rs` | Find `Shell_TrayWnd`, attach the strip, place it around the tray |
-| `src/render.rs` | Direct2D/DirectWrite renderer, DIB, layered-window presentation |
+| `src/render.rs` | Direct2D/DirectWrite renderer, DIB, bitmap backdrops, layered-window presentation |
+| `src/capture.rs` | Desktop capture, box blur, and rounded-corner mask for the Glass theme |
 | `src/ui.rs` | Strip and tabbed panel composition, settings controls/hit testing, palette, text formatting |
 | `src/metrics.rs` | Sampling loop and snapshot data |
 | `src/gpu.rs` | DXGI adapter enumeration, GPU load and temperature providers |
-| `src/disk.rs` | System-volume disk temperature through storage IOCTLs |
+| `src/disk.rs` | Volume extent checks and physical-disk temperature through storage IOCTLs |
 | `src/config.rs` | TOML config load/save, defaults, validation, legacy migration |
 | `src/logging.rs` | Append-only runtime log |
 | `build.rs` | Embeds the application manifest |
@@ -84,11 +85,14 @@ The app exits through the strip context menu: right-click the strip and choose
 6. Preserve the single-instance mutex behavior and Explorer-restart recovery.
 7. Keep config backward compatible. New fields need serde defaults and
    validation.
-8. Keep the strip width deterministic from the configured widgets and GPU
-   count so placement remains stable.
-9. The Settings tab is the supported configuration path. Every control change
-   must validate, save, and apply immediately; do not reintroduce a
-   manual-edit-only workflow.
+8. Keep the strip width deterministic from the configured widgets and visible
+   GPU count so placement remains stable.
+9. Placement must avoid visible taskbar siblings. Use the occupancy logic in
+   `src/taskbar.rs`; keep the 6 px collision gap and do not fall back to
+   `tray_left` alone.
+10. The Settings tab is the supported configuration path. Every control change
+    must validate, save, and apply immediately; do not reintroduce a
+    manual-edit-only workflow.
 
 ## UI rules
 
@@ -101,16 +105,18 @@ The app exits through the strip context menu: right-click the strip and choose
   are semibold.
 - Use 9 px labels and temperatures, 17 px strip values, and 24 px panel values
   at 96 DPI.
-- Keep the strip at a 4 px inset, 12 px outer radius, 62 px cells, and 10 px
+- Keep the strip at a 4 px inset, 12 px outer radius, 72 px cells, and 10 px
   inter-cell gaps unless the documented composition changes.
 - Do not animate high-frequency updates. The current interface uses instant
   state changes with a hover delay and a short hide delay.
-- Verify both dark and light palettes, plus `mem_mode`/`disk_mode` in both
-  `gb` and `percent` modes.
+- Verify System, Dark, Light, and Glass palettes, plus `mem_mode`/`disk_mode`
+  in both `gb` and `percent` modes.
 - Settings controls use the 24 px chip geometry, 6 px radius, card fill,
   accent selected border, and primary semibold selected text.
-- Keep the Settings panel at 400 × 344 DIP and the Overview panel at 400 × 272
+- Keep the Settings panel at 400 × 392 DIP and the Overview panel at 400 × 272
   DIP unless both layout and hit-testing constants are updated together.
+- The popup adds 6 DIP transparent side margins; subtract them before hit
+  testing.
 - Convert popup mouse coordinates from pixels to DIPs before hit testing.
 
 ## Verification
@@ -120,16 +126,21 @@ Before calling a change complete:
 1. Build with `scripts\build.bat --release`; fix all errors and warnings.
 2. Confirm the log contains a successful `strip placed:` line.
 3. Capture the strip and the hover panel at 100% scaling.
-4. Check dark and light themes.
-5. Check multi-GPU layout when more than one adapter is present.
-6. Check `gb` and `percent` display modes.
+4. Check System, Dark, Light, and Glass themes.
+5. Check multi-GPU layout and per-GPU toggles when more than one adapter is
+   present.
+6. Check `gb` and `percent` display modes, and confirm disk totals exclude
+   cloud-drive letters.
 7. Confirm hover show, leave-hide, click pin, and right-click menu behavior.
-8. Open Settings from the hover tab and from the right-click menu.
-9. Exercise every settings control: position, offset, theme, accent, memory
-   mode, disk mode, refresh, hover delay, widget toggles, reset, and Done.
-10. Confirm settings survive closing/reopening the panel and that the strip and
+8. Confirm left and right placement avoid existing taskbar widgets with a
+   6 px gap.
+9. Open Settings from the hover tab and from the right-click menu.
+10. Exercise every settings control: position, offset, theme, accent, memory
+   mode, disk mode, refresh, hover delay, widget toggles, GPU toggles, reset,
+   and Reset.
+11. Confirm settings survive closing/reopening the panel and that the strip and
     panel update immediately.
-11. Remove temporary screenshots, scripts, and logs from the repository root.
+12. Remove temporary screenshots, scripts, and logs from the repository root.
 
 ## Git hygiene
 
