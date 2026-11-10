@@ -109,7 +109,9 @@ gpu_visible = []
 - Settings apply live to the strip and panel and save automatically. When the
   panel was opened by hover, it closes after the pointer leaves it, including
   on the Settings tab.
-- Click the strip to pin or close the panel.
+- Click the strip to pin or close the panel. Middle-click opens Settings
+  directly.
+- Drag the strip horizontally to reposition it inside the taskbar.
 - Right-click the strip for **Settings**, **Reload config**, and **Exit**.
 - The strip reattaches after Explorer restarts.
 - The app uses only user-mode APIs and does not require administrator rights.

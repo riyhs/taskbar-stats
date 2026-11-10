@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::mem::size_of;
 
@@ -40,6 +41,7 @@ pub struct Renderer {
     width: i32,
     height: i32,
     dpi: f32,
+    alpha: Cell<f32>,
 }
 
 impl Renderer {
@@ -60,6 +62,7 @@ impl Renderer {
                 width: 0,
                 height: 0,
                 dpi: 96.0,
+                alpha: Cell::new(1.0),
             })
         }
     }
@@ -146,20 +149,31 @@ impl Renderer {
         }
     }
 
+    pub fn set_alpha(&self, alpha: f32) {
+        self.alpha.set(alpha.clamp(0.0, 1.0));
+    }
+
     pub fn end(&self, hwnd: HWND) -> Result<()> {
         unsafe {
             self.target.EndDraw(None, None)?;
-            let blend = BLENDFUNCTION {
-                BlendOp: AC_SRC_OVER as u8,
-                BlendFlags: 0,
-                SourceConstantAlpha: 255,
-                AlphaFormat: AC_SRC_ALPHA as u8,
-            };
-            let src = POINT { x: 0, y: 0 };
-            let size = SIZE {
-                cx: self.width,
-                cy: self.height,
-            };
+        }
+        self.present(hwnd)
+    }
+
+    pub fn present(&self, hwnd: HWND) -> Result<()> {
+        let alpha = self.alpha.get();
+        let blend = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: (alpha * 255.0).round() as u8,
+            AlphaFormat: AC_SRC_ALPHA as u8,
+        };
+        let src = POINT { x: 0, y: 0 };
+        let size = SIZE {
+            cx: self.width,
+            cy: self.height,
+        };
+        unsafe {
             UpdateLayeredWindow(
                 hwnd,
                 HDC::default(),

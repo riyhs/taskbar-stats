@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{
@@ -13,7 +14,9 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::System::Threading::CreateMutexW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::capture;
@@ -32,6 +35,9 @@ const TIMER_UPDATE: usize = 1;
 const TIMER_ATTACH: usize = 2;
 const TIMER_HOVER: usize = 3;
 const TIMER_HIDE: usize = 4;
+const TIMER_ANIM: usize = 5;
+const PANEL_SHOW_MS: u64 = 140;
+const PANEL_HIDE_MS: u64 = 110;
 
 const MUTEX_NAME: PCWSTR = w!("Local\\TaskbarStats.SingleInstance");
 const WM_MOUSELEAVE_MSG: u32 = 0x02A3;
@@ -102,6 +108,10 @@ pub fn run() -> Result<()> {
             glass_bg: None,
             glass_bg_w: 0,
             glass_bg_h: 0,
+            popup_alpha: 1.0,
+            fade: None,
+            fade_timer: false,
+            drag: None,
         };
 
         APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -154,6 +164,24 @@ struct App {
     glass_bg: Option<Vec<u8>>,
     glass_bg_w: u32,
     glass_bg_h: u32,
+    popup_alpha: f32,
+    fade: Option<Fade>,
+    fade_timer: bool,
+    drag: Option<StripDrag>,
+}
+
+struct Fade {
+    start: Instant,
+    from: f32,
+    to: f32,
+    duration_ms: u64,
+    hiding: bool,
+}
+
+struct StripDrag {
+    cursor_start: i32,
+    strip_start: i32,
+    moved: bool,
 }
 
 impl App {
@@ -189,6 +217,7 @@ impl App {
                 match wparam.0 {
                     TIMER_UPDATE => self.sample_and_render(),
                     TIMER_ATTACH => self.reattach(),
+                    TIMER_ANIM => self.tick_fade(),
                     _ => {}
                 }
                 LRESULT(0)
@@ -217,7 +246,36 @@ impl App {
 
     fn on_strip(&mut self, hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         match msg {
+            WM_LBUTTONDOWN => {
+                let Some(tb) = self.taskbar else {
+                    return LRESULT(0);
+                };
+                let mut point = POINT::default();
+                let mut rect = RECT::default();
+                let mut taskbar_rect = RECT::default();
+                unsafe {
+                    let _ = GetCursorPos(&mut point);
+                    let _ = GetWindowRect(self.strip, &mut rect);
+                    let _ = GetWindowRect(tb.hwnd, &mut taskbar_rect);
+                    let _ = SetCapture(hwnd);
+                }
+                if self.hover_timer {
+                    unsafe {
+                        let _ = KillTimer(self.strip, TIMER_HOVER);
+                    }
+                    self.hover_timer = false;
+                }
+                self.drag = Some(StripDrag {
+                    cursor_start: point.x,
+                    strip_start: rect.left - taskbar_rect.left,
+                    moved: false,
+                });
+                LRESULT(0)
+            }
             WM_MOUSEMOVE => {
+                if self.update_strip_drag() {
+                    return LRESULT(0);
+                }
                 self.track_leave(hwnd);
                 if !self.popup_visible && !self.pinned && !self.hover_timer {
                     unsafe {
@@ -225,6 +283,10 @@ impl App {
                     }
                     self.hover_timer = true;
                 }
+                LRESULT(0)
+            }
+            WM_CAPTURECHANGED => {
+                self.drag = None;
                 LRESULT(0)
             }
             WM_MOUSELEAVE_MSG => {
@@ -264,11 +326,26 @@ impl App {
                 LRESULT(0)
             }
             WM_LBUTTONUP => {
-                if self.popup_visible && self.pinned {
+                let drag = self.drag.take();
+                unsafe {
+                    let _ = ReleaseCapture();
+                }
+                if drag.is_some_and(|drag| drag.moved) {
+                    self.finish_strip_drag();
+                } else if self.fade.as_ref().is_some_and(|fade| fade.hiding) {
+                    self.cancel_fade();
+                    self.popup_alpha = 1.0;
+                    self.render_popup();
+                } else if self.popup_visible {
                     self.hide_popup();
                 } else {
                     self.show_popup(true);
                 }
+                LRESULT(0)
+            }
+            WM_MBUTTONUP => {
+                self.panel_tab = ui::PanelTab::Settings;
+                self.show_popup(true);
                 LRESULT(0)
             }
             WM_RBUTTONUP => {
@@ -292,6 +369,11 @@ impl App {
     fn on_popup(&mut self, hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         match msg {
             WM_MOUSEMOVE => {
+                if self.fade.as_ref().is_some_and(|fade| fade.hiding) {
+                    self.cancel_fade();
+                    self.popup_alpha = 1.0;
+                    self.render_popup();
+                }
                 self.track_leave(hwnd);
                 if self.hide_timer {
                     unsafe {
@@ -462,6 +544,7 @@ impl App {
         if self.popup_renderer.resize(width, height, dpi).is_err() {
             return;
         }
+        self.popup_renderer.set_alpha(self.popup_alpha);
         let gpu_names = self.sampler.gpu_names();
         if let Err(error) = ui::draw_panel(
             &self.popup_renderer,
@@ -512,6 +595,11 @@ impl App {
 
     fn show_popup(&mut self, pin: bool) {
         let Some(tb) = self.taskbar else { return };
+        let was_visible = self.popup_visible;
+        self.cancel_fade();
+        if !was_visible {
+            self.popup_alpha = 0.0;
+        }
         self.pinned = pin;
         self.panel_hover = None;
         if self.hover_timer {
@@ -572,15 +660,99 @@ impl App {
         }
         self.popup_visible = true;
         self.render_popup();
+        if self.popup_alpha < 1.0 {
+            self.start_fade(1.0, PANEL_SHOW_MS, false);
+        }
     }
 
     fn hide_popup(&mut self) {
+        if !self.popup_visible {
+            return;
+        }
+        if self.fade.as_ref().is_some_and(|fade| fade.hiding) {
+            return;
+        }
         self.pinned = false;
+        self.start_fade(0.0, PANEL_HIDE_MS, true);
+    }
+
+    fn finish_hide_popup(&mut self) {
+        if self.fade_timer {
+            unsafe {
+                let _ = KillTimer(self.hidden, TIMER_ANIM);
+            }
+            self.fade_timer = false;
+        }
+        self.fade = None;
         self.popup_visible = false;
+        self.pinned = false;
         self.panel_tab = ui::PanelTab::Overview;
         self.panel_hover = None;
+        self.popup_alpha = 1.0;
         unsafe {
             let _ = ShowWindow(self.popup, SW_HIDE);
+        }
+    }
+
+    fn cancel_fade(&mut self) {
+        if self.fade_timer {
+            unsafe {
+                let _ = KillTimer(self.hidden, TIMER_ANIM);
+            }
+            self.fade_timer = false;
+        }
+        self.fade = None;
+    }
+
+    fn start_fade(&mut self, to: f32, duration_ms: u64, hiding: bool) {
+        if !animations_enabled() || duration_ms == 0 {
+            self.popup_alpha = to;
+            if hiding {
+                self.finish_hide_popup();
+            } else {
+                self.popup_renderer.set_alpha(self.popup_alpha);
+                self.render_popup();
+            }
+            return;
+        }
+        self.fade = Some(Fade {
+            start: Instant::now(),
+            from: self.popup_alpha,
+            to,
+            duration_ms,
+            hiding,
+        });
+        if !self.fade_timer {
+            unsafe {
+                SetTimer(self.hidden, TIMER_ANIM, 15, None);
+            }
+            self.fade_timer = true;
+        }
+    }
+
+    fn tick_fade(&mut self) {
+        let Some(fade) = self.fade.as_ref() else {
+            return;
+        };
+        let elapsed = fade.start.elapsed().as_secs_f32() * 1000.0;
+        let t = (elapsed / fade.duration_ms as f32).clamp(0.0, 1.0);
+        let eased = if fade.hiding {
+            t * t
+        } else {
+            1.0 - (1.0 - t).powi(3)
+        };
+        self.popup_alpha = fade.from + (fade.to - fade.from) * eased;
+        if self.popup_visible {
+            self.popup_renderer.set_alpha(self.popup_alpha);
+            let _ = self.popup_renderer.present(self.popup);
+        }
+        if t >= 1.0 {
+            let hiding = fade.hiding;
+            self.popup_alpha = fade.to;
+            self.cancel_fade();
+            if hiding {
+                self.finish_hide_popup();
+            }
         }
     }
 
@@ -592,6 +764,83 @@ impl App {
             SetTimer(self.strip, TIMER_HIDE, 260, None);
         }
         self.hide_timer = true;
+    }
+
+    fn update_strip_drag(&mut self) -> bool {
+        let Some(drag) = self.drag.as_mut() else {
+            return false;
+        };
+        let Some(tb) = self.taskbar else {
+            return true;
+        };
+        let mut point = POINT::default();
+        unsafe {
+            let _ = GetCursorPos(&mut point);
+        }
+        let dx = point.x - drag.cursor_start;
+        let mut started = false;
+        if !drag.moved && dx.abs() > 4 {
+            drag.moved = true;
+            started = true;
+        }
+        if !drag.moved {
+            return true;
+        }
+        let strip_start = drag.strip_start;
+        if started {
+            self.pinned = false;
+            if self.popup_visible {
+                self.hide_popup();
+            }
+        }
+        let width = self.strip_w_px.max(1);
+        let bound = tb.tray_left.unwrap_or(tb.width).max(width);
+        let x = (strip_start + dx).clamp(0, (bound - width).max(0));
+        unsafe {
+            let _ = SetWindowPos(
+                self.strip,
+                HWND_TOP,
+                x,
+                0,
+                width,
+                self.strip_h_px,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+        true
+    }
+
+    fn finish_strip_drag(&mut self) {
+        let Some(tb) = self.taskbar else {
+            return;
+        };
+        let mut rect = RECT::default();
+        let mut taskbar_rect = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(self.strip, &mut rect);
+            let _ = GetWindowRect(tb.hwnd, &mut taskbar_rect);
+        }
+        let x = rect.left - taskbar_rect.left;
+        let width = (rect.right - rect.left).max(1);
+        let bound = tb.tray_left.unwrap_or(tb.width).max(width);
+        let position = if x + width / 2 <= bound / 2 {
+            "left"
+        } else {
+            "right"
+        };
+        let offset_px = if position == "left" {
+            x.max(0)
+        } else {
+            (bound - (x + width)).max(0)
+        };
+        self.config.position = position.to_string();
+        self.config.offset = (offset_px as f32 * 96.0 / tb.dpi as f32).round() as i32;
+        self.config.validate();
+        if let Err(error) = self.config.save(&self.config_path) {
+            logging::write(&format!("config save failed: {error}"));
+        }
+        self.position_strip();
+        self.render_strip();
     }
 
     fn track_leave(&self, hwnd: HWND) {
@@ -910,6 +1159,22 @@ fn system_uses_light() -> bool {
         )
     };
     status.0 == 0 && value == 1
+}
+
+fn animations_enabled() -> bool {
+    let mut enabled = BOOL(0);
+    let status = unsafe {
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            Some((&mut enabled as *mut BOOL).cast::<c_void>()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    if status.is_err() {
+        return true;
+    }
+    enabled.as_bool()
 }
 
 fn register_classes(hinstance: HINSTANCE) {

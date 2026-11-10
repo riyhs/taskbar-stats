@@ -1060,19 +1060,14 @@ fn draw_chip(
     let (x, y, w, h) = rect;
     let fill = if selected || hovered { p.card } else { p.track };
     renderer.fill_round(x, y, w, h, 6.0, fill);
-    renderer.stroke_round(
-        x + 0.5,
-        y + 0.5,
-        w - 1.0,
-        h - 1.0,
-        5.5,
-        if selected || hovered {
-            p.accent
-        } else {
-            p.border
-        },
-        1.0,
-    );
+    let outline = if selected {
+        with_alpha(p.accent, 0.55)
+    } else if hovered {
+        with_alpha(p.accent, 0.35)
+    } else {
+        p.border
+    };
+    renderer.stroke_round(x + 0.5, y + 0.5, w - 1.0, h - 1.0, 5.5, outline, 1.0);
     renderer.text_weight(
         label,
         x,
@@ -1287,7 +1282,7 @@ fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
             Palette {
                 bg: rgb(248, 248, 252, 0.62),
                 card: rgb(255, 255, 255, 0.30),
-                border: rgb(0, 0, 0, 0.13),
+                border: rgb(0, 0, 0, 0.075),
                 track: rgb(0, 0, 0, 0.10),
                 muted: rgb(90, 90, 100, 1.0),
                 secondary: rgb(55, 55, 65, 1.0),
@@ -1302,7 +1297,7 @@ fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
             Palette {
                 bg: rgb(14, 14, 19, 0.62),
                 card: rgb(255, 255, 255, 0.075),
-                border: rgb(255, 255, 255, 0.15),
+                border: rgb(255, 255, 255, 0.05),
                 track: rgb(255, 255, 255, 0.10),
                 muted: rgb(155, 155, 165, 1.0),
                 secondary: rgb(198, 198, 208, 1.0),
@@ -1318,7 +1313,7 @@ fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
         Palette {
             bg: rgb(250, 250, 252, 0.98),
             card: rgb(0, 0, 0, 0.035),
-            border: rgb(0, 0, 0, 0.09),
+            border: rgb(0, 0, 0, 0.055),
             track: rgb(0, 0, 0, 0.07),
             muted: rgb(105, 105, 115, 1.0),
             secondary: rgb(70, 70, 80, 1.0),
@@ -1333,7 +1328,7 @@ fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
         Palette {
             bg: rgb(19, 19, 23, 0.985),
             card: rgb(255, 255, 255, 0.04),
-            border: rgb(255, 255, 255, 0.085),
+            border: rgb(255, 255, 255, 0.05),
             track: rgb(255, 255, 255, 0.07),
             muted: rgb(145, 145, 155, 1.0),
             secondary: rgb(185, 185, 195, 1.0),
@@ -1375,6 +1370,11 @@ fn load_fill_color(value: f32, p: &Palette) -> D2D1_COLOR_F {
     } else {
         p.accent
     }
+}
+
+fn with_alpha(mut color: D2D1_COLOR_F, alpha: f32) -> D2D1_COLOR_F {
+    color.a *= alpha.clamp(0.0, 1.0);
+    color
 }
 
 fn rgb(r: u8, g: u8, b: u8, a: f32) -> D2D1_COLOR_F {

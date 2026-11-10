@@ -86,7 +86,7 @@ impl Config {
         if !matches!(self.theme.as_str(), "system" | "dark" | "light" | "glass") {
             self.theme = "system".into();
         }
-        self.offset = self.offset.clamp(-400, 400);
+        self.offset = self.offset.clamp(-4096, 4096);
         self.hover_delay_ms = self.hover_delay_ms.clamp(0, 2000);
         self.update_ms = self.update_ms.clamp(250, 5000);
         if self.mem_mode != "percent" {

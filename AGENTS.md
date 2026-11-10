@@ -107,8 +107,9 @@ The app exits through the strip context menu: right-click the strip and choose
   at 96 DPI.
 - Keep the strip at a 4 px inset, 12 px outer radius, 72 px cells, and 10 px
   inter-cell gaps unless the documented composition changes.
-- Do not animate high-frequency updates. The current interface uses instant
-  state changes with a hover delay and a short hide delay.
+- Keep motion brief and interruptible: the panel fades in over 140 ms and out
+  over 110 ms; respect `SPI_GETCLIENTAREAANIMATION`. Do not animate the
+  one-second data refresh.
 - Verify System, Dark, Light, and Glass palettes, plus `mem_mode`/`disk_mode`
   in both `gb` and `percent` modes.
 - Settings controls use the 24 px chip geometry, 6 px radius, card fill,
@@ -131,7 +132,8 @@ Before calling a change complete:
    present.
 6. Check `gb` and `percent` display modes, and confirm disk totals exclude
    cloud-drive letters.
-7. Confirm hover show, leave-hide, click pin, and right-click menu behavior.
+7. Confirm hover show, fade, leave-hide, click toggle, middle-click Settings,
+   strip drag/snap, and right-click menu behavior.
 8. Confirm left and right placement avoid existing taskbar widgets with a
    6 px gap.
 9. Open Settings from the hover tab and from the right-click menu.

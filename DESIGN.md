@@ -259,7 +259,7 @@ panel grows to 392 px while Settings is active.
 - Unselected controls use the track fill, border, and secondary text.
 - Selected controls use a card fill, accent border, and primary semibold text.
 - Hovered controls use the card fill, accent border, and primary text.
-- Offset changes by 2 DIP per press and is clamped to −400…400.
+- Offset changes by 2 DIP per press and is clamped to −4096…4096.
 - Accent swatches are 20 px; the selected swatch gets a 1 px primary ring,
   hovered swatches get an accent ring.
 - Every change applies immediately and writes the config file.
@@ -280,17 +280,20 @@ panel grows to 392 px while Settings is active.
 - Hover delay: `hover_delay_ms`, default 220 ms.
 - Panel remains while the pointer is over the strip or panel.
 - Leaving both starts a 260 ms hide timer.
-- Clicking the strip pins the panel; clicking again closes it.
+- Clicking the strip toggles the panel: hidden opens it pinned, visible closes
+  it.
+- Middle-clicking the strip opens Settings pinned.
+- Dragging the strip horizontally repositions it; on release the position and
+  offset are saved and snapped into the nearest free taskbar gap.
 - Opening the Settings tab does not pin a hover-opened panel.
 - Leaving an unpinned panel, including Settings, starts the hide timer.
 - Settings controls apply changes immediately and save automatically.
-- Clicking the strip closes the panel.
 - Right-clicking the strip opens `Settings`, `Reload config`, and `Exit`.
 - The panel never takes focus (`WS_EX_NOACTIVATE`).
-- Current motion: none. State changes are instantaneous. Do not add entrance
-  animations to the one-second data refresh; if panel motion is added later,
-  keep it short, interruptible, and disabled for reduced-motion preferences
-  where the platform exposes them.
+- The panel fades in over 140 ms and fades out over 110 ms, with an ease-out
+  curve. The hide timer is 260 ms. Motion is skipped when the Windows
+  `SPI_GETCLIENTAREAANIMATION` setting is disabled. Do not animate the
+  one-second data refresh.
 
 ## Adaptation and accessibility
 

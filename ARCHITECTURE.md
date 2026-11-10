@@ -89,6 +89,9 @@ Popup placement:
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
   below a top taskbar.
+- Fades use `UpdateLayeredWindow` with a changing `SourceConstantAlpha`;
+  `TIMER_ANIM` runs at 15 ms while a fade is active. Reduced-motion preference
+  skips the fade.
 - `WS_EX_NOACTIVATE` and `WM_MOUSEACTIVATE → MA_NOACTIVATE` keep focus on the
   foreground application.
 
@@ -135,12 +138,17 @@ UI composition lives in `src/ui.rs`:
 | `TIMER_ATTACH` | hidden host | Retry attaching if Explorer/taskbar is unavailable |
 | `TIMER_HOVER` | strip | Delay opening the hover panel |
 | `TIMER_HIDE` | strip | Delay closing the panel after pointer leave |
+| `TIMER_ANIM` | hidden host | Drive the 140/110 ms panel fade |
 
 Strip input:
 
 - `WM_MOUSEMOVE`: tracks `WM_MOUSELEAVE` and starts the hover timer.
 - Hover timer: opens the panel if the cursor is still over the strip.
-- `WM_LBUTTONUP`: opens/pins or closes the panel.
+- `WM_LBUTTONDOWN` starts a drag; movement past 4 px moves the strip and
+  suppresses hover. `WM_LBUTTONUP` saves the dropped position and offset, or
+  toggles the panel when the movement stayed below the threshold.
+- `WM_MBUTTONUP`: opens Settings pinned.
+- `WM_LBUTTONUP`: toggles open/pinned or close.
 - `WM_RBUTTONUP`: opens the native context menu.
 - `WM_MOUSELEAVE`: starts the hide timer unless pinned.
 
