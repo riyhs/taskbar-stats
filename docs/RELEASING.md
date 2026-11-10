@@ -25,33 +25,54 @@ Use `MAJOR.MINOR.PATCH` for the Rust package version and a matching `v` tag.
    git push origin main --tags
    ```
 
-The release workflow rejects a tag that does not match `Cargo.toml`.
+The release workflow rejects a tag that does not match `Cargo.toml`. It exports
+`TASKBAR_STATS_VERSION=v<version>` before compiling, so the version in the panel
+footer comes from the release tag. Local builds fall back to the Cargo package
+version.
 
 ## Artifacts
 
-The workflow builds `target/release/taskbar-stats.exe` and publishes:
+The workflow builds `target/release/taskbar-stats.exe`, compiles the Inno Setup
+installer, and publishes:
 
 ```text
 TaskbarStats-<version>-windows-x64.zip
 TaskbarStats-<version>-windows-x64.exe
-TaskbarStats-<version>-windows-x64.zip.sha256
+TaskbarStats-<version>-windows-x64-setup.exe
+TaskbarStats-<version>-windows-x64.sha256
 ```
 
-The zip contains the executable. The checksum file uses the standard two-space
-format:
+The zip contains the executable. The setup executable installs the app and
+generates an uninstaller automatically. The checksum file covers both the zip and
+the setup executable using the standard two-space format:
 
 ```text
 <sha256>  TaskbarStats-<version>-windows-x64.zip
+<sha256>  TaskbarStats-<version>-windows-x64-setup.exe
 ```
+
+## Installer
+
+The installer source is `installer/taskbar-stats.iss`. It targets the current
+user, installs under `%LOCALAPPDATA%\Programs\TaskbarStats`, and does not require
+elevation.
+
+To build it locally, install Inno Setup 6, build the release executable, then run:
+
+```powershell
+.\scripts\build-installer.ps1 -Version 0.1.0
+```
+
+The result is written to `dist/TaskbarStats-0.1.0-windows-x64-setup.exe`.
 
 ## Signing
 
 Windows builds are currently **unsigned**. There are no signing secrets to
 configure, and SmartScreen may warn on first run.
 
-If code signing is added later, sign the executable before packaging it and
-update the verification step in `release.yml`. Do not publish a signed label
-until the signature has been verified.
+If code signing is added later, sign both the executable and the setup executable
+before packaging them and update the verification step in `release.yml`. Do not
+publish a signed label until the signatures have been verified.
 
 ## Local release build
 

@@ -85,8 +85,8 @@ contributes one cell per physical adapter.
 Popup placement:
 
 - Content width 400 DIP plus 6 DIP transparent side margins; height 280 DIP
-  for Overview, 332 DIP for Settings, and 156 DIP for Appearance, scaled by
-  taskbar DPI.
+  for Overview, 360 DIP for Pomodoro, 320 DIP for Todo, 332 DIP for Settings,
+  and 204 DIP for Appearance, scaled by taskbar DPI.
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
   below a top taskbar.
@@ -107,12 +107,13 @@ Each of the strip and popup owns a `Renderer`:
 5. Clear to transparent, draw rounded rectangles, text, bars, and dots.
 6. `EndDraw`, then present with `UpdateLayeredWindow`.
 
-For the Blur style, `show_popup` briefly hides the popup, captures the desktop
-region behind its content with `BitBlt`, applies a separable box blur and a
-rounded-corner alpha mask, and stores the result. `draw_panel` draws that
-captured backdrop beneath the translucent tint and cards. The blur is sampled
-when the panel is shown, resized, or switched to Blur, not on every metric
-refresh. Solid and Clear never capture a backdrop.
+For the Blur style, `show_popup` captures the desktop region behind the popup
+content with `BitBlt`, applies a separable box blur and a rounded-corner alpha
+mask, and stores the result. `draw_panel` draws that captured backdrop beneath
+the translucent tint and cards. A fresh capture happens when the panel becomes
+visible, when no backdrop exists, or when switching to Blur; an already-open
+panel reuses the backdrop while resizing, so tab changes do not hide or flash.
+Solid and Clear never capture a backdrop.
 
 The UI works in DIPs. `app.rs` converts pixel dimensions back to DIPs before
 calling `ui::draw_strip`/`ui::draw_panel`, and converts popup mouse coordinates
@@ -124,9 +125,12 @@ UI composition lives in `src/ui.rs`:
 - `strip_width_dip` and `strip_cell_count` calculate the strip width.
 - `draw_strip` builds cells and draws labels, temperatures, values, and bars.
 - `draw_panel` draws the bottom tab bar and dispatches to the overview cards,
-  the settings form, or the appearance form.
-- `draw_settings`, `draw_appearance`, `action_at`, and `settings_rect` share
-  one fixed control geometry for drawing and hit testing.
+  Pomodoro, Todo, Settings, or Appearance.
+- `draw_settings`, `draw_appearance`, `draw_pomodoro`, `draw_todo`,
+  `action_at`, and `settings_rect` share one fixed control geometry for drawing
+  and hit testing.
+- `Renderer::set_font_scale` applies the Compact/Normal/Large text-size setting
+  to every text draw.
 - `palette` resolves a color theme (system/dark/light/amoled/slate/sand) and
   then applies a surface style (solid/blur/clear); `palette` and threshold
   helpers are the only places that decide semantic colors.
@@ -142,6 +146,7 @@ UI composition lives in `src/ui.rs`:
 | `TIMER_HOVER` | strip | Delay opening the hover panel |
 | `TIMER_HIDE` | strip | Delay closing the panel after pointer leave |
 | `TIMER_ANIM` | hidden host | Drive the 140/110 ms panel fade |
+| `TIMER_POMODORO` | hidden host | Tick the Pomodoro timer and send phase notifications |
 
 Strip input:
 
@@ -153,6 +158,8 @@ Strip input:
 - `WM_MBUTTONUP`: opens Settings pinned.
 - `WM_LBUTTONUP`: toggles open/pinned or close.
 - `WM_RBUTTONUP`: opens the native context menu.
+- Tray callback: left-click opens the panel, right-click opens the same menu,
+  and a notification click opens Pomodoro.
 - `WM_MOUSELEAVE`: starts the hide timer unless pinned.
 
 Popup input:
@@ -167,13 +174,14 @@ Popup input:
   - Empty panel space leaves an unpinned panel unpinned (so mouse leave still
     hides it) and closes a pinned panel.
 - Right click closes.
-- The popup never activates.
+- The popup never activates. The Add task dialog is a short-lived normal
+  top-level window so it can receive keyboard input.
 
 ## Settings and Appearance flow
 
 Settings and Appearance are control surfaces rendered inside the same popup.
-The panel height is 280 DIP for Overview, 332 DIP for Settings, and 156 DIP for
-Appearance.
+The panel height is 280 DIP for Overview, 360 DIP for Pomodoro, 320 DIP for
+Todo, 332 DIP for Settings, and 204 DIP for Appearance.
 
 1. A click arrives at the popup in physical pixels.
 2. `App::panel_point` converts the point to DIPs.
@@ -186,13 +194,16 @@ Appearance.
    run as needed. Layout-affecting changes re-center the popup.
 
 Settings include position, offset, memory/disk display mode, refresh interval,
-hover delay, visible widgets, per-GPU visibility, and reset. Appearance includes
-theme, surface style, and accent. The config file is an implementation detail;
+hover delay, visible widgets, per-GPU visibility, Start with Windows, and reset.
+Appearance includes theme, surface style, accent, and text size. Pomodoro and
+Todo store their timer durations, completed state, and task list in the same
+configuration model. The config file is an implementation detail;
 manual editing is not required.
 
-`TaskbarCreated` triggers reattachment after Explorer restarts. Display, DPI,
-theme, and settings changes trigger re-placement and redraw. Switching tabs
-  reruns `show_popup`, so the panel height and blur capture stay correct.
+`TaskbarCreated` triggers reattachment and tray icon re-registration after
+Explorer restarts. Display, DPI, theme, and settings changes trigger
+re-placement and redraw. Switching tabs reruns `show_popup`, preserving the
+current backdrop so the panel height changes without a hide/flash cycle.
 
 ## Sampling
 
@@ -201,9 +212,9 @@ theme, and settings changes trigger re-placement and redraw. Switching tabs
 ```text
 Snapshot
 ├── cpu_load, cpu_temp, cores
-├── mem_used, mem_total, mem_temp
+├── mem_used, mem_total
 ├── disk_used, disk_total, disk_temp
-├── uptime_secs
+├── net_down_bps, net_up_bps
 └── gpus: Vec<GpuInfo>
 ```
 
@@ -215,13 +226,13 @@ Sample interval: `update_ms`, default 1000 ms, clamped to 250–5000 ms.
 | Per-thread load | `NtQuerySystemInformation(SystemProcessorPerformanceInformation)` deltas |
 | Memory | `GlobalMemoryStatusEx` |
 | Local disk capacity | Sum `GetDiskFreeSpaceExW` across fixed NTFS/ReFS volumes that report physical disk extents |
-| Uptime | `GetTickCount64` |
+| Network throughput | PDH network-interface receive/send byte counters, summed across instances |
 | CPU temperature | PDH `\Thermal Zone Information(*)\High Precision Temperature`, then `Temperature` |
 | GPU enumeration | DXGI `IDXGIFactory1::EnumAdapters1` |
 | GPU load | PDH `\GPU Engine(*)\Utilization Percentage` grouped by adapter LUID; NVML preferred for NVIDIA |
 | GPU temperature | NVML for NVIDIA; `D3DKMTQueryAdapterInfo(KMTQAITYPE_ADAPTERPERFDATA)` fallback |
 | Disk temperature | `IOCTL_STORAGE_QUERY_PROPERTY(StorageDeviceTemperatureProperty)` on the system volume's physical disk |
-| Memory temperature | No standard user-mode source; remains `None` |
+| Memory temperature | No standard user-mode source; not sampled or displayed |
 
 CPU temperature accepts only plausible values, filters the known 27.8 °C
 sentinel, converts tenths-Kelvin when required, and returns the highest valid
@@ -240,7 +251,7 @@ writes defaults. Referenced fields:
 ```toml
 position = "right"
 offset = 6
-widgets = ["cpu", "gpu", "mem", "disk"]
+widgets = ["cpu", "gpu", "mem", "disk", "net"]
 theme = "system"
 style = "solid"
 accent = "#5B9CFF"
@@ -249,6 +260,11 @@ update_ms = 1000
 mem_mode = "gb"
 disk_mode = "gb"
 gpu_visible = []
+font_scale = 1.0
+launch_at_startup = false
+pomodoro_focus_min = 25
+pomodoro_break_min = 5
+todos = []
 ```
 
 Validation:
@@ -264,8 +280,13 @@ Validation:
 - `widgets`: known widgets only, duplicates removed, fallback to the default
   list when empty.
 - `accent`: six hex digits, normalized to uppercase.
-- The legacy default `["cpu", "temp", "mem", "disk"]` migrates to the GPU-aware
-  default.
+- `font_scale`: finite, clamped to 0.85–1.15.
+- `launch_at_startup`: boolean; synced to the per-user Run key.
+- `pomodoro_focus_min`: 5–120 minutes; `pomodoro_break_min`: 1–60 minutes.
+- `todos`: at most 20 entries, empty text removed, each text capped at 160
+  characters.
+- The legacy default `["cpu", "temp", "mem", "disk"]` migrates to the
+  GPU-aware list including `net`.
 - The legacy `theme = "glass"` migrates to `theme = "system"` and
   `style = "blur"`.
 
@@ -274,13 +295,30 @@ widget/GPU count changes, and redraws. The normal configuration path is the
 Settings and Appearance tabs, which write the file automatically after every
 change.
 
+## Tray, notifications, and startup
+
+`App::add_tray_icon` registers a `NOTIFYICONDATAW` entry against the hidden
+host window using icon resource ID 1. The callback (`WM_APP + 1`) opens the
+panel on left-click and the native strip menu on right-click. `WM_TRAY`
+notifications use `NIM_MODIFY` with `NIF_INFO`; a Pomodoro phase change sends a
+10-second balloon notification and logs the event.
+
+The tray icon is removed on exit and re-added after `TaskbarCreated` (Explorer
+restart).
+
+`launch_at_startup` is applied by writing a quoted `current_exe()` path to
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` under the value
+`TaskbarStats`. Turning it off deletes the value. This is a per-user operation
+and requires no elevation.
+
 ## Logging
 
 `src/logging.rs` appends timestamped lines to
 `%APPDATA%\TaskbarStats\taskbar-stats.log` using a process-wide `Mutex<File>`.
-The startup line and each successful strip placement are logged. Render errors,
-attachment failures, and fatal errors are also recorded. The panic hook writes
-the panic message before the default hook runs.
+The startup line, each successful strip placement, and each Pomodoro
+notification are logged. Render errors, attachment failures, and fatal errors are
+also recorded. The panic hook writes the panic message before the default hook
+runs.
 
 ## Build
 
@@ -296,6 +334,12 @@ the panic message before the default hook runs.
 - `scripts/build.bat` locates Visual Studio, loads the C++ environment, adds
   the local `.toolchain` SDK libraries/build tools when available, then invokes
   Cargo.
+- `scripts/build-installer.ps1` drives Inno Setup 6 with
+  `installer/taskbar-stats.iss`. The installer is per-user, installs under
+  `%LOCALAPPDATA%\Programs\TaskbarStats`, and generates an uninstaller.
+- `.github/workflows/release.yml` exports `TASKBAR_STATS_VERSION` from the tag,
+  compiles the exe and installer, and publishes a zip, raw exe, setup exe, and
+  combined SHA-256 file.
 
 ## Limitations
 

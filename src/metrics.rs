@@ -14,9 +14,7 @@ use windows::Win32::System::Performance::{
     PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
     PdhOpenQueryW, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_MORE_DATA,
 };
-use windows::Win32::System::SystemInformation::{
-    GetTickCount64, GlobalMemoryStatusEx, MEMORYSTATUSEX,
-};
+use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows::Win32::System::Threading::{
     GetActiveProcessorCount, GetSystemTimes, ALL_PROCESSOR_GROUPS,
 };
@@ -35,11 +33,11 @@ pub struct Snapshot {
     pub mem_total: u64,
     pub disk_used: u64,
     pub disk_total: u64,
-    pub uptime_secs: u64,
+    pub net_down_bps: f64,
+    pub net_up_bps: f64,
     pub cores: Vec<f32>,
     pub gpus: Vec<GpuInfo>,
     pub disk_temp: Option<f32>,
-    pub mem_temp: Option<f32>,
 }
 
 pub struct Sampler {
@@ -47,6 +45,7 @@ pub struct Sampler {
     previous_system: Option<(u64, u64, u64)>,
     temperature: Option<TemperatureQuery>,
     gpu: GpuSampler,
+    network: Option<NetworkCounters>,
     snapshot: Snapshot,
 }
 
@@ -64,6 +63,7 @@ impl Sampler {
             previous_system: None,
             temperature: TemperatureQuery::new(),
             gpu: GpuSampler::new(),
+            network: NetworkCounters::new(),
             snapshot: Snapshot::default(),
         }
     }
@@ -108,6 +108,11 @@ impl Sampler {
         let cpu_temp = self.temperature.as_ref().and_then(|t| t.read());
         let gpus = self.gpu.sample();
         let disk_temp = disk::system_disk_temp();
+        let (net_down_bps, net_up_bps) = self
+            .network
+            .as_ref()
+            .and_then(NetworkCounters::read)
+            .unwrap_or((0.0, 0.0));
 
         self.snapshot = Snapshot {
             cpu_load,
@@ -116,11 +121,11 @@ impl Sampler {
             mem_total,
             disk_used,
             disk_total,
-            uptime_secs: unsafe { GetTickCount64() } / 1000,
+            net_down_bps,
+            net_up_bps,
             cores,
             gpus,
             disk_temp,
-            mem_temp: None,
         };
         self.snapshot.clone()
     }
@@ -265,6 +270,105 @@ fn disk() -> (u64, u64) {
         (total.saturating_sub(free), total)
     } else {
         (0, 0)
+    }
+}
+
+struct NetworkCounters {
+    query: isize,
+    received: isize,
+    sent: isize,
+}
+
+impl NetworkCounters {
+    fn new() -> Option<Self> {
+        unsafe {
+            let mut query = 0isize;
+            if PdhOpenQueryW(PCWSTR::null(), 0, &mut query) != 0 {
+                return None;
+            }
+            let mut received = 0isize;
+            let mut sent = 0isize;
+            let received_status = PdhAddEnglishCounterW(
+                query,
+                w!(r"\Network Interface(*)\Bytes Received/sec"),
+                0,
+                &mut received,
+            );
+            let sent_status = PdhAddEnglishCounterW(
+                query,
+                w!(r"\Network Interface(*)\Bytes Sent/sec"),
+                0,
+                &mut sent,
+            );
+            if received_status != 0 || sent_status != 0 {
+                let _ = PdhCloseQuery(query);
+                return None;
+            }
+            let _ = PdhCollectQueryData(query);
+            Some(Self {
+                query,
+                received,
+                sent,
+            })
+        }
+    }
+
+    fn read(&self) -> Option<(f64, f64)> {
+        unsafe {
+            if PdhCollectQueryData(self.query) != 0 {
+                return None;
+            }
+            Some((counter_sum(self.received)?, counter_sum(self.sent)?))
+        }
+    }
+}
+
+impl Drop for NetworkCounters {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = PdhCloseQuery(self.query);
+        }
+    }
+}
+
+fn counter_sum(counter: isize) -> Option<f64> {
+    unsafe {
+        let mut size = 0u32;
+        let mut count = 0u32;
+        let status =
+            PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &mut size, &mut count, None);
+        if status != PDH_MORE_DATA && status != 0 {
+            return None;
+        }
+        if size == 0 || count == 0 {
+            return Some(0.0);
+        }
+        let mut words = vec![0u64; (size as usize).div_ceil(8)];
+        let status = PdhGetFormattedCounterArrayW(
+            counter,
+            PDH_FMT_DOUBLE,
+            &mut size,
+            &mut count,
+            Some(words.as_mut_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>()),
+        );
+        if status != 0 {
+            return None;
+        }
+        let items = slice::from_raw_parts(
+            words.as_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>(),
+            count as usize,
+        );
+        let mut total = 0.0;
+        for item in items {
+            if item.FmtValue.CStatus != 0 {
+                continue;
+            }
+            let value = item.FmtValue.Anonymous.doubleValue;
+            if value.is_finite() && value > 0.0 {
+                total += value;
+            }
+        }
+        Some(total)
     }
 }
 

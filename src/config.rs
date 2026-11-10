@@ -18,6 +18,23 @@ pub struct Config {
     pub disk_mode: String,
     #[serde(default)]
     pub gpu_visible: Vec<String>,
+    #[serde(default = "default_font_scale")]
+    pub font_scale: f64,
+    #[serde(default)]
+    pub launch_at_startup: bool,
+    #[serde(default = "default_focus_min")]
+    pub pomodoro_focus_min: u32,
+    #[serde(default = "default_break_min")]
+    pub pomodoro_break_min: u32,
+    #[serde(default)]
+    pub todos: Vec<TodoItem>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub text: String,
+    #[serde(default)]
+    pub done: bool,
 }
 
 fn default_gb() -> String {
@@ -28,12 +45,30 @@ fn default_style() -> String {
     "solid".into()
 }
 
+fn default_font_scale() -> f64 {
+    1.0
+}
+
+fn default_focus_min() -> u32 {
+    25
+}
+
+fn default_break_min() -> u32 {
+    5
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             position: "right".into(),
             offset: 6,
-            widgets: vec!["cpu".into(), "gpu".into(), "mem".into(), "disk".into()],
+            widgets: vec![
+                "cpu".into(),
+                "gpu".into(),
+                "mem".into(),
+                "disk".into(),
+                "net".into(),
+            ],
             theme: "system".into(),
             style: default_style(),
             accent: "#5B9CFF".into(),
@@ -42,6 +77,11 @@ impl Default for Config {
             mem_mode: default_gb(),
             disk_mode: default_gb(),
             gpu_visible: Vec::new(),
+            font_scale: default_font_scale(),
+            launch_at_startup: false,
+            pomodoro_focus_min: default_focus_min(),
+            pomodoro_break_min: default_break_min(),
+            todos: Vec::new(),
         }
     }
 }
@@ -71,7 +111,13 @@ impl Config {
             migrated = true;
         }
         if cfg.widgets == ["cpu", "temp", "mem", "disk"] {
-            cfg.widgets = vec!["cpu".into(), "gpu".into(), "mem".into(), "disk".into()];
+            cfg.widgets = vec![
+                "cpu".into(),
+                "gpu".into(),
+                "mem".into(),
+                "disk".into(),
+                "net".into(),
+            ];
         }
         cfg.validate();
         if migrated {
@@ -116,6 +162,17 @@ impl Config {
         if self.disk_mode != "percent" {
             self.disk_mode = "gb".into();
         }
+        if !self.font_scale.is_finite() {
+            self.font_scale = 1.0;
+        }
+        self.font_scale = self.font_scale.clamp(0.85, 1.15);
+        self.pomodoro_focus_min = self.pomodoro_focus_min.clamp(5, 120);
+        self.pomodoro_break_min = self.pomodoro_break_min.clamp(1, 60);
+        self.todos.retain(|todo| !todo.text.trim().is_empty());
+        self.todos.truncate(20);
+        for todo in &mut self.todos {
+            todo.text = todo.text.trim().chars().take(160).collect();
+        }
         self.gpu_visible.retain(|name| !name.trim().is_empty());
         let mut seen = Vec::new();
         self.gpu_visible.retain(|name| {
@@ -128,7 +185,7 @@ impl Config {
             }
         });
 
-        let known = ["cpu", "temp", "gputemp", "gpu", "mem", "disk"];
+        let known = ["cpu", "temp", "gputemp", "gpu", "mem", "disk", "net"];
         let mut seen = Vec::new();
         for w in self.widgets.drain(..) {
             if known.contains(&w.as_str()) && !seen.contains(&w) {
@@ -136,7 +193,13 @@ impl Config {
             }
         }
         if seen.is_empty() {
-            seen = vec!["cpu".into(), "gpu".into(), "mem".into(), "disk".into()];
+            seen = vec![
+                "cpu".into(),
+                "gpu".into(),
+                "mem".into(),
+                "disk".into(),
+                "net".into(),
+            ];
         }
         self.widgets = seen;
 

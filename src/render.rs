@@ -41,6 +41,7 @@ pub struct Renderer {
     height: i32,
     dpi: f32,
     alpha: Cell<f32>,
+    font_scale: Cell<f32>,
 }
 
 impl Renderer {
@@ -62,6 +63,7 @@ impl Renderer {
                 height: 0,
                 dpi: 96.0,
                 alpha: Cell::new(1.0),
+                font_scale: Cell::new(1.0),
             })
         }
     }
@@ -150,6 +152,10 @@ impl Renderer {
 
     pub fn set_alpha(&self, alpha: f32) {
         self.alpha.set(alpha.clamp(0.0, 1.0));
+    }
+
+    pub fn set_font_scale(&self, scale: f32) {
+        self.font_scale.set(scale.clamp(0.85, 1.15));
     }
 
     pub fn end(&self, hwnd: HWND) -> Result<()> {
@@ -251,6 +257,9 @@ impl Renderer {
         weight: DWRITE_FONT_WEIGHT,
         align: DWRITE_TEXT_ALIGNMENT,
     ) {
+        let scale = self.font_scale.get();
+        let size = size * scale;
+        let h = h * scale;
         unsafe {
             let Ok(format) = self.dwrite.CreateTextFormat(
                 w!("Segoe UI"),

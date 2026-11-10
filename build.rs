@@ -64,6 +64,18 @@ fn main() {
     println!("cargo:rerun-if-changed=app.manifest");
     println!("cargo:rerun-if-changed=taskbar-stats.rc");
     println!("cargo:rerun-if-changed=assets/icon.ico");
+    println!("cargo:rerun-if-env-changed=TASKBAR_STATS_VERSION");
+
+    let version = env::var("TASKBAR_STATS_VERSION")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            format!(
+                "v{}",
+                env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into())
+            )
+        });
+    println!("cargo:rustc-env=TASKBAR_STATS_VERSION={version}");
 
     let manifest = std::fs::canonicalize("app.manifest").expect("app.manifest");
     let mut manifest = manifest.to_string_lossy().into_owned();

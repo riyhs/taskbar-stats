@@ -3,11 +3,11 @@
 <img src="assets/icon.png" alt="Taskbar Stats icon" width="96" align="right">
 
 A lightweight Windows system monitor that lives **inside the taskbar**. It shows
-CPU, GPU, memory, and disk activity at a glance, then expands into a detailed
-panel on hover.
+CPU, GPU, memory, disk, and network activity at a glance, then opens a detail
+panel with a Pomodoro timer, a small task list, and live appearance controls.
 
-No installer, no administrator rights, no background service, and no network
-access. It uses only user-mode Windows APIs.
+No administrator rights, no background service, and no network access. It uses
+only user-mode Windows APIs.
 
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows)
 ![Rust](https://img.shields.io/badge/Rust-2021-000000?logo=rust)
@@ -17,37 +17,58 @@ access. It uses only user-mode Windows APIs.
 
 ## Features
 
-- **Taskbar strip** with one compact cell per metric: CPU, each detected GPU,
-  memory, and local disk usage. Each cell shows a live value, secondary
-  temperature, and a utilization bar.
-- **Hover detail panel** with CPU cores, memory breakdown, disk capacity, and
-  per-GPU load and temperature.
-- **Three tabs** in the panel: **Overview**, **Settings**, and **Appearance**.
-  Tabs stay at the bottom so switching does not move them away from the pointer.
+- **Taskbar strip** with compact cells for CPU, each detected GPU, memory, local
+  disk usage, and download/upload speed. Every cell has a live value and a
+  utilization or activity bar; temperatures appear where the sensor is available.
+- **Five panel tabs**: **Overview**, **Pomodoro**, **Todo**, **Settings**, and
+  **Appearance**. The tab bar is anchored to the bottom so it never moves out
+  from under the pointer.
+- **Pomodoro timer** with 25/50 minute focus presets, 5/10 minute breaks,
+  start/pause, reset, skip, completed-session count, progress bar, and Windows
+  tray notifications when a phase ends.
+- **Todo list** with add, complete, delete, clear-completed, and paging for more
+  than five tasks. Tasks are saved with the rest of the configuration.
 - **Six color themes**: System, Dark, Light, AMOLED, Slate, and Sand.
 - **Three independent surface styles**: Solid, Blur (a captured desktop blur
   behind the panel), and Clear (translucent without blur).
+- **Text size control**: Compact, Normal, or Large, applied to the strip and the
+  panel.
 - **Per-GPU controls**: each adapter gets its own strip cell and can be shown or
   hidden independently.
+- **Network speed**: download and upload rates from Windows performance counters,
+  available as an optional `NET` strip cell and in the Overview panel.
 - **Smart taskbar placement**: avoids existing taskbar buttons and the
   notification area, snaps into a free gap, and can be dragged into a new spot.
+- **Tray icon** while the app is running. Left-click it to open the panel;
+  right-click for Settings, Reload config, and Exit.
+- **Start with Windows** toggle in Settings. It registers the current executable
+  in the current user's Run key; no elevation is required.
 - **Live settings**: position, offset, refresh interval, hover delay, memory and
-  disk display modes, widget visibility, per-GPU visibility, themes, styles,
-  accent color, and reset. Everything saves automatically.
+  disk display modes, widget visibility, per-GPU visibility, text size, startup,
+  themes, styles, accent color, Pomodoro lengths, and reset. Everything saves
+  automatically.
+- **Current version in the panel footer**, taken from the release tag in CI and
+  from the package version for local builds.
 - **Explorer-restart recovery**, single-instance protection, per-monitor DPI
   support, and a short panel fade that respects the Windows animation setting.
+- **Installer and uninstaller** in the release artifacts, with a portable zip
+  alternative. Both are per-user and do not require elevation.
 - **Local only**: no analytics, no telemetry, no cloud calls, no drivers, and no
   elevation requirement.
 
 ## Screenshots
 
-| Overview | Settings |
+| Overview | Pomodoro |
 | --- | --- |
-| <img src="docs/screenshots/overview.png" alt="Overview panel and taskbar strip" width="360"> | <img src="docs/screenshots/settings.png" alt="Settings tab" width="360"> |
+| <img src="docs/screenshots/overview.png" alt="Overview panel and taskbar strip" width="360"> | <img src="docs/screenshots/pomodoro.png" alt="Pomodoro timer tab" width="360"> |
+
+| Todo | Settings |
+| --- | --- |
+| <img src="docs/screenshots/todo.png" alt="Todo list tab" width="360"> | <img src="docs/screenshots/settings.png" alt="Settings tab" width="360"> |
 
 | Appearance | Taskbar strip |
 | --- | --- |
-| <img src="docs/screenshots/appearance.png" alt="Appearance tab" width="360"> | <img src="docs/screenshots/strip.png" alt="Taskbar strip with CPU, GPU, memory and disk cells" width="420"> |
+| <img src="docs/screenshots/appearance.png" alt="Appearance tab" width="360"> | <img src="docs/screenshots/strip.png" alt="Taskbar strip with CPU, GPU, memory, disk and network cells" width="420"> |
 
 The screenshots use the built-in Dark theme with the Solid surface style.
 
@@ -67,32 +88,48 @@ not been verified.
 
 ## Install
 
-### Prebuilt release
+### Installer (recommended)
+
+1. Open the [latest release](../../releases/latest).
+2. Download `TaskbarStats-<version>-windows-x64-setup.exe`.
+3. Run the installer. It installs for the current user under
+   `%LOCALAPPDATA%\Programs\TaskbarStats`, adds a Start menu shortcut, and creates
+   an uninstall entry.
+4. Launch **Taskbar Stats** from the Start menu or the finish page.
+
+The installer is not code-signed yet, so Windows SmartScreen may warn. Use
+**More info → Run anyway** after verifying the download came from this
+repository's Releases page.
+
+To uninstall, open **Settings → Apps → Installed apps → Taskbar Stats →
+Uninstall**, or use **Start menu → Uninstall Taskbar Stats**. The uninstaller
+stops the app, removes its startup registration, shortcuts, and program files.
+Your configuration in `%APPDATA%\TaskbarStats` is kept unless you delete it.
+
+### Portable zip
 
 1. Open the [latest release](../../releases/latest).
 2. Download `TaskbarStats-<version>-windows-x64.zip`.
 3. Extract the zip anywhere you want to keep the app.
 4. Run `taskbar-stats.exe`.
 
-The strip appears in a free area of the taskbar. There is no installer and
-nothing is written to Program Files.
+The portable build has no installer. Delete the extracted folder when you no
+longer need it.
 
-> The executable is not code-signed yet, so Windows SmartScreen may warn. Use
-> **More info → Run anyway** after verifying you downloaded it from this
-> repository's Releases page.
+### Start with Windows
 
-### Start with Windows (optional)
+Turn on **Start with Windows** in the **Settings** tab. This writes a per-user
+entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and points it at
+the running executable. Turn the chip off again to remove the entry.
 
-1. Press `Win + R`, type `shell:startup`, and press Enter.
-2. Create a shortcut to `taskbar-stats.exe` in the Startup folder.
+If you move a portable copy of the app, turn the toggle off and on again so the
+registry points at the new location.
 
-The app also reattaches itself after Explorer restarts.
+### Tray icon
 
-### Uninstall
-
-1. Right-click the strip and choose **Exit**.
-2. Delete the extracted app folder.
-3. Optionally remove `%APPDATA%\TaskbarStats` to delete the config and log.
+While Taskbar Stats is running, its icon is added to the notification area. It
+may be in the overflow menu (`^`) by default; drag it onto the taskbar if you
+want it always visible. Left-click opens the panel; right-click opens the menu.
 
 ## Usage
 
@@ -105,8 +142,33 @@ The app also reattaches itself after Explorer restarts.
 - **Right-click** the strip for Settings, Reload config, and Exit.
 - Clicking non-button panel space does not pin a hover-opened panel.
 - Empty panel space on a pinned panel closes it.
+- Click a bottom tab to switch panels. The window keeps its bottom edge anchored
+  and reuses the current blurred backdrop, so tab changes do not flash or jump.
 
-### Settings tab
+### Overview
+
+Shows CPU load and temperature, memory use, disk use and temperature, per-GPU
+load and temperature, and current network throughput. If a sensor is unavailable,
+it shows `--` or `--°` instead of inventing a value.
+
+### Pomodoro
+
+The timer starts at 25 minutes of focus and 5 minutes of break. Use the chips to
+choose 25/50 minute focus and 5/10 minute break lengths. **Start/Pause** controls
+the countdown; **Reset** returns to a fresh focus session; **Skip** moves to the
+other phase without counting a completed session.
+
+When focus ends, the break starts automatically and a tray notification appears.
+When the break ends, the timer returns to focus and pauses so you can start the
+next session. The timer continues while the panel is closed.
+
+### Todo
+
+Use **Add task** to open a small text dialog. Click the checkbox to mark a task
+done, `×` to delete it, or **Clear completed** to remove finished items. Tasks
+are saved immediately. Up to 20 tasks are kept; five are shown per page.
+
+### Settings
 
 The Settings tab controls placement and behavior:
 
@@ -114,67 +176,50 @@ The Settings tab controls placement and behavior:
 - memory and disk display mode (`GB` or `%`)
 - refresh interval (0.5 s, 1 s, 2 s)
 - hover delay (0, 150, 220, 400 ms)
-- visible widgets and per-GPU visibility
+- visible widgets (`CPU`, `MEM`, `DISK`, `NET`) and per-GPU visibility
+- start with Windows
 - reset to defaults
 
-### Appearance tab
-
-The Appearance tab controls only visual choices:
+### Appearance
 
 - theme: System, Dark, Light, AMOLED, Slate, Sand
-- surface style: Solid, Blur, Clear
-- accent color: six presets
-
-Theme and style are independent, so combinations such as **Light + Blur**,
-**Dark + Blur**, and **Dark + Solid** all work.
+- style: Solid, Blur, Clear
+- accent color
+- text size: Compact, Normal, Large
 
 ## Configuration
 
-Settings are managed from the panel and saved automatically. The file is also
-available for manual inspection or migration:
-
-```text
-%APPDATA%\TaskbarStats\config.toml
-```
-
-Default shape:
-
-```toml
-position = "right"
-offset = 6
-widgets = ["cpu", "gpu", "mem", "disk"]
-theme = "system"
-style = "solid"
-accent = "#5B9CFF"
-hover_delay_ms = 220
-update_ms = 1000
-mem_mode = "gb"
-disk_mode = "gb"
-gpu_visible = []
-```
+The app writes `%APPDATA%\TaskbarStats\config.toml` and
+`%APPDATA%\TaskbarStats\taskbar-stats.log`. The supported configuration path is
+the Settings and Appearance tabs; the file is shown here for reference.
 
 | Key | Meaning |
 | --- | --- |
-| `position` | `"left"` or `"right"`. Desired side of the taskbar. |
-| `offset` | Desired edge gap in DIPs. Collision avoidance may move the strip farther inward. |
-| `widgets` | Ordered list: `cpu`, `gpu`, `mem`, `disk`; legacy `temp`/`gputemp` cells are migrated. |
-| `theme` | `system`, `dark`, `light`, `amoled`, `slate`, or `sand`. |
-| `style` | `solid`, `blur`, or `clear`. |
-| `accent` | Six-digit hex color for progress fills and selected controls. |
-| `hover_delay_ms` | Delay before the hover panel appears, 0–2000 ms. |
-| `update_ms` | Sampling interval, clamped to 250–5000 ms. |
-| `mem_mode` / `disk_mode` | `"gb"` or `"percent"`. The strip value follows the mode; the bar always shows the percentage. |
-| `gpu_visible` | Adapter names to show. Empty means all detected adapters. Managed by the Settings tab. |
+| `position` | `"left"` or `"right"` |
+| `offset` | Distance from the anchored edge, in DIP |
+| `widgets` | Visible strip cells: `cpu`, `gpu`, `mem`, `disk`, `net` |
+| `theme` | `system`, `dark`, `light`, `amoled`, `slate`, `sand` |
+| `style` | `solid`, `blur`, `clear` |
+| `accent` | `#RRGGBB` accent color |
+| `hover_delay_ms` | Delay before the panel opens |
+| `update_ms` | Sampling interval in milliseconds |
+| `mem_mode` | `gb` or `percent` |
+| `disk_mode` | `gb` or `percent` |
+| `gpu_visible` | Adapter names to show; empty means all detected adapters |
+| `font_scale` | Text scale, normally `0.9`, `1.0`, or `1.15` |
+| `launch_at_startup` | Mirror of the Start with Windows toggle |
+| `pomodoro_focus_min` | Focus duration in minutes |
+| `pomodoro_break_min` | Break duration in minutes |
+| `todos` | Array of `{ text, done }` task entries |
 
-The legacy `theme = "glass"` value migrates to `theme = "system"` and
-`style = "blur"`. Use **Reload config** after editing the file manually; the
-Settings and Appearance tabs are the normal path.
+Changing the file is supported for troubleshooting, but the tabs are the
+intended path. Use **Reload config** from the strip or tray menu after an
+external edit.
 
 ## Build from source
 
 ### Requirements
 
-- Windows 10/11 x64
 - Rust stable with the `x86_64-pc-windows-msvc` target
 - Visual Studio Build Tools with the **Desktop development with C++** workload
 - Windows 10/11 SDK
@@ -194,19 +239,21 @@ If your terminal already has the Visual Studio and Windows SDK environment:
 cargo build --release
 ```
 
-The executable is written to:
+The local executable is written to `target\release\taskbar-stats.exe`. The icon
+resource is compiled from `taskbar-stats.rc` and `assets/icon.ico` by `build.rs`;
+the Windows SDK `rc.exe` must be available.
 
-```text
-target\release\taskbar-stats.exe
+### Installer
+
+Install [Inno Setup 6](https://jrsoftware.org/isinfo.php), build the release
+executable, then run:
+
+```powershell
+.\scripts\build-installer.ps1 -Version 0.1.0
 ```
 
-The repository build script uses `vswhere` and falls back to the BuildTools
-installation. If the local `.toolchain` directory exists, its SDK import
-libraries and build tools are used automatically.
-
-The app icon is compiled from `taskbar-stats.rc` + `assets/icon.ico` by
-`build.rs`; no resource compiler needs to be installed separately when the
-Windows SDK is available.
+The setup executable is written to `dist\TaskbarStats-0.1.0-windows-x64-setup.exe`.
+Inno Setup generates the uninstaller automatically.
 
 ### Checks
 
@@ -214,103 +261,63 @@ Windows SDK is available.
 cargo fmt -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
-cargo build --release
 ```
 
 ## Sensors and limitations
 
-- **CPU utilization** comes from system-wide kernel/user/idle counters, with
-  per-core counters for the detail panel.
-- **CPU temperature** has no standard user-mode Windows API. It requires an ACPI
-  thermal zone or vendor driver exposed by the firmware. Many laptops, including
-  some Lenovo models, do not expose one to normal applications; the UI shows
-  `--` instead of inventing a value.
-- **GPUs** are enumerated with DXGI. Utilization uses the Windows GPU Engine
-  performance counters; NVIDIA adapters additionally use NVML for utilization
-  and temperature. Unsupported adapters show `--`.
-- **Disk temperature** uses the standard storage temperature property where the
-  drive exposes it; no administrator rights are required on tested NVMe
-  hardware.
-- **Memory temperature** is unavailable because Windows exposes no standard
-  memory temperature API.
-- **Disk capacity** sums local fixed NTFS/ReFS volumes with physical extents, so
-  cloud-drive letters reported as fixed volumes are excluded.
-- **Blur** captures and blurs the desktop behind the panel when it is shown.
-  Native acrylic/DWM blur is not used because it does not composite reliably on
-  a layered popup.
-- **No signing yet**: release executables are unsigned and may trigger
-  SmartScreen.
-- **No auto-update**: download a newer release and replace the executable.
-- **No installer**: configuration lives in `%APPDATA%\TaskbarStats`.
-- **Mouse-first UI**: there is no keyboard focus model or screen-reader
-  representation yet.
+- **CPU temperature** depends on a firmware/ACPI thermal zone. Many Intel
+  laptops, including some Lenovo models, do not expose one to user-mode apps;
+  the app then shows `temp --` rather than a fabricated value.
+- **GPU temperature** is read through NVML when available, with DXGI/D3DKMT
+  fallbacks for load. Integrated GPUs may report load but not temperature.
+- **Disk temperature** is read from the physical storage device through storage
+  IOCTLs and may require the device to expose a temperature sensor.
+- **Network speed** is sampled from Windows `Network Interface` performance
+  counters. It is a system-wide estimate and may include virtual adapters.
+- **Memory has no temperature reading**; temperature is only shown for devices
+  that expose one.
+- **CPU core bars are intentionally absent** from the Overview. Per-core load was
+  too small to read at panel scale; the CPU card shows overall load, temperature,
+  and thread count instead.
+- The app targets the horizontal primary taskbar. Multi-monitor taskbars and
+  vertical taskbars are not supported yet.
+- The executable is currently unsigned. Builds are reproducible from source, and
+  release artifacts include SHA-256 checksums.
 
 ## Privacy
 
-Taskbar Stats does not make network requests, collect analytics, or send data
-anywhere. The only files it writes are:
-
-```text
-%APPDATA%\TaskbarStats\config.toml
-%APPDATA%\TaskbarStats\taskbar-stats.log
-```
-
-Both stay on the local machine. The app does not install a service or kernel
-driver and does not request administrator rights.
+Taskbar Stats runs locally. It does not send telemetry, make HTTP requests, or
+create a network listener. The only writable locations are
+`%APPDATA%\TaskbarStats` and, when enabled, the current user's Run registry key.
 
 ## Troubleshooting
 
-**The strip does not appear**
+| Symptom | What to try |
+| --- | --- |
+| Strip is not visible | Right-click the taskbar and make sure it is not auto-hidden; restart Explorer or the app. |
+| Tray icon is missing | Open the notification-area overflow (`^`); Windows may hide new icons by default. |
+| Start with Windows did not work | Toggle it off and on after moving the executable; check `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. |
+| Panel is positioned oddly | Drag the strip to a free taskbar gap, or reset the offset in Settings. |
+| CPU temperature shows `--` | The firmware does not expose a thermal zone to user-mode apps. This is expected on some laptops. |
+| Settings were from an older version | Use **Reset defaults** in Settings; legacy `glass` configs and the old `cpu/temp/mem/disk` widget list migrate automatically. |
 
-Check the log at `%APPDATA%\TaskbarStats\taskbar-stats.log`. Restart Explorer or
-the app if the taskbar was rebuilt. Only one instance can run per user session.
-
-**The panel closes unexpectedly**
-
-The panel is hover-managed unless you click the strip to pin it. Clicking
-non-button panel space no longer pins a hover-opened panel; leave the panel to
-close it.
-
-**CPU temperature shows `--`**
-
-The firmware does not expose a thermal zone or sensor to normal applications.
-See [Sensors and limitations](#sensors-and-limitations). A kernel driver or
-vendor service would be required; the app deliberately does not install one.
-
-**A GPU is missing or shows `--`**
-
-Check that the adapter is enabled in **Settings → GPUs**. Some drivers do not
-expose utilization or temperature counters. Switching between integrated and
-discrete GPUs can take a few seconds.
-
-**SmartScreen blocks the app**
-
-The executable is unsigned. Verify the release source and choose **More info →
-Run anyway**, or build it yourself.
-
-**The strip overlaps another taskbar widget**
-
-Move it with drag, change the offset in Settings, or choose the other side.
-Placement scans for free gaps but cannot guarantee space when the taskbar is
-full.
+Runtime log: `%APPDATA%\TaskbarStats\taskbar-stats.log`
 
 ## Releases and CI
 
-- **CI** runs on pull requests and manual dispatch. It checks formatting,
-  clippy, tests, and a locked release build on `windows-latest`.
-- **Release** runs when a tag such as `v0.1.0` is pushed. It verifies that the
-  tag matches `Cargo.toml`, builds the executable, packages
-  `TaskbarStats-<version>-windows-x64.zip`, and publishes the zip, raw exe, and
-  SHA-256 checksum to the GitHub Release.
-- There are no signing secrets required. The published executable is unsigned.
+- `.github/workflows/ci.yml` runs formatting, clippy with warnings denied, tests,
+  and a locked release build on pull requests and manual dispatches.
+- `.github/workflows/release.yml` runs on `v*` tags, verifies the tag matches
+  `Cargo.toml`, builds the executable and installer, and publishes:
+  - `TaskbarStats-<version>-windows-x64.zip`
+  - `TaskbarStats-<version>-windows-x64.exe`
+  - `TaskbarStats-<version>-windows-x64-setup.exe`
+  - `TaskbarStats-<version>-windows-x64.sha256`
 
-See [docs/RELEASING.md](docs/RELEASING.md) for the versioning and tagging steps.
+See [docs/RELEASING.md](docs/RELEASING.md) for the release checklist.
 
-## Development
+## More documentation
 
-- [DESIGN.md](DESIGN.md) — visual system, layout tokens, themes, and styles
-- [ARCHITECTURE.md](ARCHITECTURE.md) — window model, taskbar placement,
-  rendering, timers, and data flow
-- [AGENTS.md](AGENTS.md) — repository invariants and verification checklist
-
-Taskbar Stats is an independent project and is not affiliated with Microsoft.
+- [DESIGN.md](DESIGN.md) — tokens, layout, and visual rules
+- [ARCHITECTURE.md](ARCHITECTURE.md) — windowing, sampling, and build layout
+- [AGENTS.md](AGENTS.md) — contributor and verification guide

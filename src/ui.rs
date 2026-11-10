@@ -9,6 +9,7 @@ use windows::Win32::Graphics::DirectWrite::{
 use crate::config::Config;
 use crate::gpu::GpuInfo;
 use crate::metrics::Snapshot;
+use crate::pomodoro::Pomodoro;
 use crate::render::Renderer;
 
 const STRIP_PAD: f32 = 4.0;
@@ -31,12 +32,18 @@ const SETTINGS_ROW3: f32 = 112.0;
 const SETTINGS_WIDGETS: f32 = 160.0;
 const SETTINGS_GPUS: f32 = 208.0;
 const SETTINGS_FOOTER: f32 = 256.0;
-const APPEARANCE_HEIGHT: f32 = 156.0;
+const APPEARANCE_HEIGHT: f32 = 204.0;
 const APPEARANCE_ROW1: f32 = 16.0;
 const APPEARANCE_ROW2: f32 = 64.0;
-const TAB_W: f32 = 62.0;
+const APPEARANCE_ROW3: f32 = 112.0;
+const POMODORO_HEIGHT: f32 = 360.0;
+const TODO_HEIGHT: f32 = 320.0;
+pub const TODO_ROWS: usize = 5;
+const TAB_W: f32 = 58.0;
+const TAB_GAP: f32 = 5.0;
 const TAB_H: f32 = 28.0;
 const TAB_BOTTOM_PAD: f32 = 8.0;
+const VERSION: &str = env!("TASKBAR_STATS_VERSION");
 const TAB_BAND: f32 = TAB_H + TAB_BOTTOM_PAD;
 
 pub const ACCENTS: [&str; 6] = [
@@ -46,6 +53,8 @@ pub const ACCENTS: [&str; 6] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PanelTab {
     Overview,
+    Pomodoro,
+    Todo,
     Settings,
     Appearance,
 }
@@ -53,6 +62,8 @@ pub enum PanelTab {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PanelAction {
     TabOverview,
+    TabPomodoro,
+    TabTodo,
     TabSettings,
     TabAppearance,
     PositionLeft,
@@ -83,13 +94,33 @@ pub enum PanelAction {
     WidgetCpu,
     WidgetMem,
     WidgetDisk,
+    WidgetNet,
     Gpu(usize),
+    LaunchAtStartup,
+    FontCompact,
+    FontNormal,
+    FontLarge,
+    PomodoroToggle,
+    PomodoroReset,
+    PomodoroSkip,
+    PomodoroFocus25,
+    PomodoroFocus50,
+    PomodoroBreak5,
+    PomodoroBreak10,
+    TodoAdd,
+    TodoClearDone,
+    TodoPrevPage,
+    TodoNextPage,
+    TodoToggle(usize),
+    TodoDelete(usize),
     Reset,
 }
 
 pub fn panel_height(tab: PanelTab) -> f32 {
     match tab {
         PanelTab::Overview => 280.0,
+        PanelTab::Pomodoro => POMODORO_HEIGHT,
+        PanelTab::Todo => TODO_HEIGHT,
         PanelTab::Settings => SETTINGS_HEIGHT,
         PanelTab::Appearance => APPEARANCE_HEIGHT,
     }
@@ -102,12 +133,19 @@ fn contains(rect: Rect, x: f32, y: f32) -> bool {
 }
 
 fn tab_rect(tab: PanelTab, height: f32) -> Rect {
-    let x = match tab {
-        PanelTab::Overview => SETTINGS_PAD,
-        PanelTab::Settings => SETTINGS_PAD + TAB_W + 6.0,
-        PanelTab::Appearance => SETTINGS_PAD + 2.0 * (TAB_W + 6.0),
+    let index = match tab {
+        PanelTab::Overview => 0.0,
+        PanelTab::Pomodoro => 1.0,
+        PanelTab::Todo => 2.0,
+        PanelTab::Settings => 3.0,
+        PanelTab::Appearance => 4.0,
     };
-    (x, height - TAB_H - TAB_BOTTOM_PAD, TAB_W, TAB_H)
+    (
+        SETTINGS_PAD + index * (TAB_W + TAB_GAP),
+        height - TAB_H - TAB_BOTTOM_PAD,
+        TAB_W,
+        TAB_H,
+    )
 }
 
 fn segment_rect(column_x: f32, row_y: f32, count: usize, index: usize) -> Rect {
@@ -154,11 +192,33 @@ fn settings_rect(action: PanelAction, gpu_count: usize) -> Option<Rect> {
         PanelAction::Hover150 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 1)),
         PanelAction::Hover220 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 2)),
         PanelAction::Hover400 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 3)),
-        PanelAction::WidgetCpu => Some(full_row_rect(0, 3, SETTINGS_WIDGETS)),
-        PanelAction::WidgetMem => Some(full_row_rect(1, 3, SETTINGS_WIDGETS)),
-        PanelAction::WidgetDisk => Some(full_row_rect(2, 3, SETTINGS_WIDGETS)),
+        PanelAction::WidgetCpu => Some(full_row_rect(0, 4, SETTINGS_WIDGETS)),
+        PanelAction::WidgetMem => Some(full_row_rect(1, 4, SETTINGS_WIDGETS)),
+        PanelAction::WidgetDisk => Some(full_row_rect(2, 4, SETTINGS_WIDGETS)),
+        PanelAction::WidgetNet => Some(full_row_rect(3, 4, SETTINGS_WIDGETS)),
         PanelAction::Gpu(index) if index < gpu_count => {
             Some(full_row_rect(index, gpu_count, SETTINGS_GPUS))
+        }
+        PanelAction::LaunchAtStartup => Some((SETTINGS_PAD, SETTINGS_FOOTER, 150.0, 24.0)),
+        PanelAction::FontCompact => Some(segment_rect(SETTINGS_PAD, APPEARANCE_ROW3, 3, 0)),
+        PanelAction::FontNormal => Some(segment_rect(SETTINGS_PAD, APPEARANCE_ROW3, 3, 1)),
+        PanelAction::FontLarge => Some(segment_rect(SETTINGS_PAD, APPEARANCE_ROW3, 3, 2)),
+        PanelAction::PomodoroToggle => Some((SETTINGS_PAD, 176.0, 160.0, 28.0)),
+        PanelAction::PomodoroReset => Some((186.0, 176.0, 90.0, 28.0)),
+        PanelAction::PomodoroSkip => Some((286.0, 176.0, 98.0, 28.0)),
+        PanelAction::PomodoroFocus25 => Some(segment_rect(SETTINGS_PAD, 228.0, 2, 0)),
+        PanelAction::PomodoroFocus50 => Some(segment_rect(SETTINGS_PAD, 228.0, 2, 1)),
+        PanelAction::PomodoroBreak5 => Some(segment_rect(SETTINGS_PAD, 276.0, 2, 0)),
+        PanelAction::PomodoroBreak10 => Some(segment_rect(SETTINGS_PAD, 276.0, 2, 1)),
+        PanelAction::TodoAdd => Some((SETTINGS_PAD, 216.0, 112.0, 26.0)),
+        PanelAction::TodoClearDone => Some((140.0, 216.0, 130.0, 26.0)),
+        PanelAction::TodoPrevPage => Some((280.0, 216.0, 30.0, 24.0)),
+        PanelAction::TodoNextPage => Some((352.0, 216.0, 30.0, 24.0)),
+        PanelAction::TodoToggle(index) if index < TODO_ROWS => {
+            Some((SETTINGS_PAD, 40.0 + index as f32 * 34.0, 300.0, 28.0))
+        }
+        PanelAction::TodoDelete(index) if index < TODO_ROWS => {
+            Some((354.0, 40.0 + index as f32 * 34.0, 30.0, 28.0))
         }
         PanelAction::Reset => Some((
             PANEL_WIDTH - SETTINGS_PAD - 70.0,
@@ -211,6 +271,8 @@ const SETTINGS_ACTIONS: &[PanelAction] = &[
     PanelAction::WidgetCpu,
     PanelAction::WidgetMem,
     PanelAction::WidgetDisk,
+    PanelAction::WidgetNet,
+    PanelAction::LaunchAtStartup,
     PanelAction::Reset,
 ];
 
@@ -230,12 +292,46 @@ const APPEARANCE_ACTIONS: &[PanelAction] = &[
     PanelAction::Accent(3),
     PanelAction::Accent(4),
     PanelAction::Accent(5),
+    PanelAction::FontCompact,
+    PanelAction::FontNormal,
+    PanelAction::FontLarge,
+];
+
+const POMODORO_ACTIONS: &[PanelAction] = &[
+    PanelAction::PomodoroToggle,
+    PanelAction::PomodoroReset,
+    PanelAction::PomodoroSkip,
+    PanelAction::PomodoroFocus25,
+    PanelAction::PomodoroFocus50,
+    PanelAction::PomodoroBreak5,
+    PanelAction::PomodoroBreak10,
+];
+
+const TODO_ACTIONS: &[PanelAction] = &[
+    PanelAction::TodoAdd,
+    PanelAction::TodoClearDone,
+    PanelAction::TodoPrevPage,
+    PanelAction::TodoNextPage,
+    PanelAction::TodoToggle(0),
+    PanelAction::TodoToggle(1),
+    PanelAction::TodoToggle(2),
+    PanelAction::TodoToggle(3),
+    PanelAction::TodoToggle(4),
+    PanelAction::TodoToggle(5),
+    PanelAction::TodoDelete(0),
+    PanelAction::TodoDelete(1),
+    PanelAction::TodoDelete(2),
+    PanelAction::TodoDelete(3),
+    PanelAction::TodoDelete(4),
+    PanelAction::TodoDelete(5),
 ];
 
 pub fn action_at(tab: PanelTab, x: f32, y: f32, gpu_count: usize) -> Option<PanelAction> {
     let height = panel_height(tab);
     for (item, action) in [
         (PanelTab::Overview, PanelAction::TabOverview),
+        (PanelTab::Pomodoro, PanelAction::TabPomodoro),
+        (PanelTab::Todo, PanelAction::TabTodo),
         (PanelTab::Settings, PanelAction::TabSettings),
         (PanelTab::Appearance, PanelAction::TabAppearance),
     ] {
@@ -263,6 +359,17 @@ pub fn action_at(tab: PanelTab, x: f32, y: f32, gpu_count: usize) -> Option<Pane
         return APPEARANCE_ACTIONS.iter().copied().find(|action| {
             settings_rect(*action, gpu_count).is_some_and(|rect| contains(rect, x, y))
         });
+    }
+    if tab == PanelTab::Pomodoro {
+        return POMODORO_ACTIONS.iter().copied().find(|action| {
+            settings_rect(*action, gpu_count).is_some_and(|rect| contains(rect, x, y))
+        });
+    }
+    if tab == PanelTab::Todo {
+        return TODO_ACTIONS
+            .iter()
+            .copied()
+            .find(|action| settings_rect(*action, gpu_count).is_some_and(|r| contains(r, x, y)));
     }
     None
 }
@@ -299,10 +406,11 @@ struct Palette {
 struct StripCell {
     label: String,
     value: String,
-    temp: Option<f32>,
+    detail: Option<(String, D2D1_COLOR_F)>,
     value_color: D2D1_COLOR_F,
     bar_color: D2D1_COLOR_F,
     fraction: f32,
+    show_bar: bool,
 }
 
 pub fn draw_strip(
@@ -359,25 +467,19 @@ pub fn draw_strip(
             DWRITE_FONT_WEIGHT_NORMAL,
         );
 
-        let temp_text = cell
-            .temp
-            .map(|temp| format!("{temp:.0}\u{00B0}"))
-            .unwrap_or_else(|| "--\u{00B0}".to_string());
-        let temp_color = cell
-            .temp
-            .map(|temp| temperature_color(temp, &p))
-            .unwrap_or(p.muted);
-        let temp_x = x + label_advance(&cell.label, label_size) + 4.0;
-        renderer.text_left_weight(
-            &temp_text,
-            temp_x,
-            label_y + 0.5,
-            (x + cell_width - temp_x).max(0.0),
-            10.0,
-            TEMP_SIZE,
-            temp_color,
-            DWRITE_FONT_WEIGHT_NORMAL,
-        );
+        if let Some((detail, detail_color)) = &cell.detail {
+            renderer.text_weight(
+                detail,
+                x,
+                label_y + 0.5,
+                cell_width,
+                10.0,
+                TEMP_SIZE,
+                *detail_color,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_TEXT_ALIGNMENT_TRAILING,
+            );
+        }
 
         renderer.text_left_weight(
             &cell.value,
@@ -390,10 +492,12 @@ pub fn draw_strip(
             DWRITE_FONT_WEIGHT_SEMI_BOLD,
         );
 
-        renderer.fill_round(x, bar_y, cell_width, bar_h, bar_h * 0.5, p.track);
-        if cell.fraction > 0.0 {
-            let fill = (cell_width * cell.fraction.clamp(0.0, 1.0)).max(bar_h);
-            renderer.fill_round(x, bar_y, fill, bar_h, bar_h * 0.5, cell.bar_color);
+        if cell.show_bar {
+            renderer.fill_round(x, bar_y, cell_width, bar_h, bar_h * 0.5, p.track);
+            if cell.fraction > 0.0 {
+                let fill = (cell_width * cell.fraction.clamp(0.0, 1.0)).max(bar_h);
+                renderer.fill_round(x, bar_y, fill, bar_h, bar_h * 0.5, cell.bar_color);
+            }
         }
     }
 
@@ -407,10 +511,11 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
             "cpu" => cells.push(StripCell {
                 label: "CPU".into(),
                 value: format!("{:.0}%", snapshot.cpu_load),
-                temp: snapshot.cpu_temp,
+                detail: Some(temp_detail(snapshot.cpu_temp, p)),
                 value_color: load_text_color(snapshot.cpu_load, p),
                 bar_color: load_fill_color(snapshot.cpu_load, p),
                 fraction: snapshot.cpu_load / 100.0,
+                show_bar: true,
             }),
             "gpu" => {
                 for gpu in &snapshot.gpus {
@@ -422,7 +527,7 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
                         } else {
                             "--".into()
                         },
-                        temp: gpu.temp_c,
+                        detail: Some(temp_detail(gpu.temp_c, p)),
                         value_color: if gpu.load_pct.is_some() {
                             load_text_color(load, p)
                         } else {
@@ -430,6 +535,7 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
                         },
                         bar_color: load_fill_color(load, p),
                         fraction: load / 100.0,
+                        show_bar: true,
                     });
                 }
             }
@@ -445,10 +551,11 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
                 cells.push(StripCell {
                     label: "TEMP".into(),
                     value,
-                    temp: snapshot.cpu_temp,
+                    detail: None,
                     value_color: color,
                     bar_color: color,
                     fraction: snapshot.cpu_temp.unwrap_or(0.0) / 100.0,
+                    show_bar: true,
                 });
             }
             "gputemp" => {
@@ -464,10 +571,11 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
                 cells.push(StripCell {
                     label: "GPU".into(),
                     value,
-                    temp: gpu.and_then(|gpu| gpu.temp_c),
+                    detail: None,
                     value_color: color,
                     bar_color: color,
                     fraction: 0.0,
+                    show_bar: false,
                 });
             }
             "mem" => {
@@ -483,10 +591,11 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
                     } else {
                         format!("{:.1}G", gib(snapshot.mem_used))
                     },
-                    temp: snapshot.mem_temp,
+                    detail: None,
                     value_color: load_text_color(fraction * 100.0, p),
                     bar_color: load_fill_color(fraction * 100.0, p),
                     fraction,
+                    show_bar: true,
                 });
             }
             "disk" => {
@@ -502,12 +611,25 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
                     } else {
                         format!("{:.0}G", gib(snapshot.disk_used))
                     },
-                    temp: snapshot.disk_temp,
+                    detail: Some(temp_detail(snapshot.disk_temp, p)),
                     value_color: load_text_color(fraction * 100.0, p),
                     bar_color: load_fill_color(fraction * 100.0, p),
                     fraction,
+                    show_bar: true,
                 });
             }
+            "net" => cells.push(StripCell {
+                label: "NET".into(),
+                value: format!("\u{2193}{}", format_rate(snapshot.net_down_bps)),
+                detail: Some((
+                    format!("\u{2191}{}", format_rate(snapshot.net_up_bps)),
+                    p.secondary,
+                )),
+                value_color: p.text,
+                bar_color: p.accent,
+                fraction: 0.0,
+                show_bar: false,
+            }),
             _ => {}
         }
     }
@@ -515,13 +637,21 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
         cells.push(StripCell {
             label: "CPU".into(),
             value: format!("{:.0}%", snapshot.cpu_load),
-            temp: snapshot.cpu_temp,
+            detail: Some(temp_detail(snapshot.cpu_temp, p)),
             value_color: load_text_color(snapshot.cpu_load, p),
             bar_color: load_fill_color(snapshot.cpu_load, p),
             fraction: snapshot.cpu_load / 100.0,
+            show_bar: true,
         });
     }
     cells
+}
+
+fn temp_detail(temp: Option<f32>, p: &Palette) -> (String, D2D1_COLOR_F) {
+    match temp {
+        Some(temp) => (format!("{temp:.0}\u{00B0}"), temperature_color(temp, p)),
+        None => ("--\u{00B0}".to_string(), p.muted),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -535,6 +665,8 @@ pub fn draw_panel(
     height: f32,
     tab: PanelTab,
     hover: Option<PanelAction>,
+    pomodoro: &Pomodoro,
+    todo_page: usize,
     gpu_names: &[String],
     background: Option<&[u8]>,
     background_width: u32,
@@ -558,23 +690,15 @@ pub fn draw_panel(
     renderer.stroke_round(0.5, 0.5, width - 1.0, height - 1.0, 17.5, p.border, 1.0);
     renderer.fill_round(18.0, 1.0, width - 36.0, 1.0, 0.5, p.highlight);
 
-    let (days, hours, minutes) = uptime(snapshot.uptime_secs);
-    let uptime_text = if days > 0 {
-        format!("{days}d {hours}h")
-    } else if hours > 0 {
-        format!("{hours}h {minutes}m")
-    } else {
-        format!("{minutes}m")
-    };
     let pad = 16.0;
     draw_tabs(renderer, tab, height, hover, &p);
     renderer.text_weight(
-        &format!("UP {uptime_text}"),
-        width - pad - 96.0,
+        VERSION,
+        width - pad - 58.0,
         height - TAB_H - 2.0,
-        96.0,
+        58.0,
         14.0,
-        9.0,
+        8.5,
         p.secondary,
         DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_TEXT_ALIGNMENT_TRAILING,
@@ -586,6 +710,14 @@ pub fn draw_panel(
         }
         PanelTab::Appearance => {
             draw_appearance(renderer, config, hover, &p);
+            return renderer.end(hwnd);
+        }
+        PanelTab::Pomodoro => {
+            draw_pomodoro(renderer, pomodoro, config, hover, &p);
+            return renderer.end(hwnd);
+        }
+        PanelTab::Todo => {
+            draw_todo(renderer, config, todo_page, hover, &p);
             return renderer.end(hwnd);
         }
         PanelTab::Overview => {}
@@ -748,9 +880,7 @@ pub fn draw_panel(
         draw_gpu_rows(renderer, gpu_card, &snapshot.gpus, &p);
     }
 
-    if !snapshot.cores.is_empty() {
-        draw_core_bars(renderer, cpu_card, &snapshot.cores, &p);
-    }
+    draw_network_footer(renderer, cpu_card, snapshot, &p);
 
     renderer.end(hwnd)
 }
@@ -764,6 +894,8 @@ fn draw_tabs(
 ) {
     for (item, action, label) in [
         (PanelTab::Overview, PanelAction::TabOverview, "Overview"),
+        (PanelTab::Pomodoro, PanelAction::TabPomodoro, "Pomodoro"),
+        (PanelTab::Todo, PanelAction::TabTodo, "Todo"),
         (PanelTab::Settings, PanelAction::TabSettings, "Settings"),
         (
             PanelTab::Appearance,
@@ -941,6 +1073,7 @@ fn draw_settings(
         (PanelAction::WidgetCpu, "CPU", "cpu"),
         (PanelAction::WidgetMem, "MEM", "mem"),
         (PanelAction::WidgetDisk, "DISK", "disk"),
+        (PanelAction::WidgetNet, "NET", "net"),
     ] {
         let Some(rect) = settings_rect(action, gpu_names.len()) else {
             continue;
@@ -997,22 +1130,24 @@ fn draw_settings(
             8.5,
         );
     }
-    renderer.text_left_weight(
-        "Changes save automatically",
-        SETTINGS_PAD,
-        SETTINGS_FOOTER + 6.0,
-        218.0,
-        14.0,
-        8.5,
-        p.muted,
-        DWRITE_FONT_WEIGHT_NORMAL,
-    );
+    if let Some(rect) = settings_rect(PanelAction::LaunchAtStartup, gpu_names.len()) {
+        draw_chip(
+            renderer,
+            rect,
+            "Start with Windows",
+            config.launch_at_startup,
+            hover == Some(PanelAction::LaunchAtStartup),
+            p,
+            8.5,
+        );
+    }
 }
 
 fn draw_appearance(renderer: &Renderer, config: &Config, hover: Option<PanelAction>, p: &Palette) {
     draw_group(renderer, SETTINGS_PAD, APPEARANCE_ROW1, "THEME", p);
     draw_group(renderer, SETTINGS_PAD, APPEARANCE_ROW2, "STYLE", p);
     draw_group(renderer, SETTINGS_COL2, APPEARANCE_ROW2, "ACCENT", p);
+    draw_group(renderer, SETTINGS_PAD, APPEARANCE_ROW3, "TEXT SIZE", p);
 
     let theme = match config.theme.as_str() {
         "system" => Some(0),
@@ -1078,6 +1213,27 @@ fn draw_appearance(renderer: &Renderer, config: &Config, hover: Option<PanelActi
             );
         }
     }
+
+    let size = if (config.font_scale - 0.9).abs() < 0.01 {
+        Some(0)
+    } else if (config.font_scale - 1.15).abs() < 0.01 {
+        Some(2)
+    } else {
+        Some(1)
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::FontCompact,
+            PanelAction::FontNormal,
+            PanelAction::FontLarge,
+        ],
+        &["Compact", "Normal", "Large"],
+        size,
+        hover,
+        0,
+        p,
+    );
 }
 
 fn draw_group(renderer: &Renderer, x: f32, y: f32, label: &str, p: &Palette) {
@@ -1323,21 +1479,344 @@ fn draw_gpu_rows(renderer: &Renderer, card: Card, gpus: &[GpuInfo], p: &Palette)
     );
 }
 
-fn draw_core_bars(renderer: &Renderer, card: Card, cores: &[f32], p: &Palette) {
+fn draw_network_footer(renderer: &Renderer, card: Card, snapshot: &Snapshot, p: &Palette) {
     let x = card.0 + 14.0;
-    let y = card.1 + card.3 - 14.0;
-    let total_w = card.2 - 28.0;
-    let n = cores.len().min(16);
-    if n == 0 {
-        return;
+    let y = card.1 + card.3 - 17.0;
+    let width = card.2 - 28.0;
+    renderer.text_left_weight(
+        "NET",
+        x,
+        y,
+        width,
+        11.0,
+        8.5,
+        p.muted,
+        DWRITE_FONT_WEIGHT_NORMAL,
+    );
+    renderer.text_weight(
+        &format!(
+            "\u{2193} {}  \u{2191} {}",
+            format_rate(snapshot.net_down_bps),
+            format_rate(snapshot.net_up_bps)
+        ),
+        x + 26.0,
+        y,
+        width - 26.0,
+        11.0,
+        9.0,
+        p.secondary,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_TEXT_ALIGNMENT_TRAILING,
+    );
+}
+
+fn draw_pomodoro(
+    renderer: &Renderer,
+    pomodoro: &Pomodoro,
+    config: &Config,
+    hover: Option<PanelAction>,
+    p: &Palette,
+) {
+    draw_group(renderer, SETTINGS_PAD, 16.0, "POMODORO", p);
+    draw_card(renderer, (16.0, 30.0, 368.0, 96.0), p);
+
+    renderer.text_weight(
+        pomodoro.phase_label(),
+        16.0,
+        38.0,
+        368.0,
+        14.0,
+        9.0,
+        if pomodoro.phase == crate::pomodoro::Phase::Focus {
+            p.accent
+        } else {
+            p.warn
+        },
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_TEXT_ALIGNMENT_CENTER,
+    );
+    let time = format_time(pomodoro.remaining_secs());
+    renderer.text_weight(
+        &time,
+        16.0,
+        52.0,
+        368.0,
+        58.0,
+        42.0,
+        p.text,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_TEXT_ALIGNMENT_CENTER,
+    );
+    let sub = if pomodoro.running {
+        "Running \u{00B7} notifications on"
+    } else {
+        "Ready when you are"
+    };
+    renderer.text_weight(
+        sub,
+        16.0,
+        106.0,
+        368.0,
+        13.0,
+        8.5,
+        p.secondary,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_TEXT_ALIGNMENT_CENTER,
+    );
+
+    let progress = pomodoro.progress(config);
+    let bar_x = 16.0;
+    let bar_y = 140.0;
+    let bar_w = 368.0;
+    renderer.fill_round(bar_x, bar_y, bar_w, 6.0, 3.0, p.track);
+    if progress > 0.0 {
+        renderer.fill_round(
+            bar_x,
+            bar_y,
+            (bar_w * progress).max(6.0),
+            6.0,
+            3.0,
+            if pomodoro.phase == crate::pomodoro::Phase::Focus {
+                p.accent
+            } else {
+                p.warn
+            },
+        );
     }
-    let gap = 2.0;
-    let bar_w = ((total_w - gap * (n as f32 - 1.0)) / n as f32).max(1.0);
-    for (i, load) in cores.iter().take(n).enumerate() {
-        let bx = x + i as f32 * (bar_w + gap);
-        renderer.fill_round(bx, y, bar_w, 4.0, 1.5, p.track);
-        let h = (4.0 * (load / 100.0).clamp(0.0, 1.0)).max(1.0);
-        renderer.fill_round(bx, y + 4.0 - h, bar_w, h, 1.5, load_fill_color(*load, p));
+
+    for (action, label, selected) in [
+        (
+            PanelAction::PomodoroToggle,
+            if pomodoro.running { "Pause" } else { "Start" },
+            pomodoro.running,
+        ),
+        (PanelAction::PomodoroReset, "Reset", false),
+        (PanelAction::PomodoroSkip, "Skip", false),
+    ] {
+        if let Some(rect) = settings_rect(action, 0) {
+            draw_chip(
+                renderer,
+                rect,
+                label,
+                selected,
+                hover == Some(action),
+                p,
+                9.0,
+            );
+        }
+    }
+
+    renderer.text_left_weight(
+        &format!(
+            "{} completed \u{00B7} {} min focus \u{00B7} {} min break",
+            pomodoro.completed, config.pomodoro_focus_min, config.pomodoro_break_min
+        ),
+        SETTINGS_PAD,
+        210.0,
+        368.0,
+        13.0,
+        8.5,
+        p.muted,
+        DWRITE_FONT_WEIGHT_NORMAL,
+    );
+
+    draw_group(renderer, SETTINGS_PAD, 228.0, "FOCUS LENGTH", p);
+    draw_segments(
+        renderer,
+        &[PanelAction::PomodoroFocus25, PanelAction::PomodoroFocus50],
+        &["25 min", "50 min"],
+        match config.pomodoro_focus_min {
+            25 => Some(0),
+            50 => Some(1),
+            _ => None,
+        },
+        hover,
+        0,
+        p,
+    );
+
+    draw_group(renderer, SETTINGS_PAD, 276.0, "BREAK LENGTH", p);
+    draw_segments(
+        renderer,
+        &[PanelAction::PomodoroBreak5, PanelAction::PomodoroBreak10],
+        &["5 min", "10 min"],
+        match config.pomodoro_break_min {
+            5 => Some(0),
+            10 => Some(1),
+            _ => None,
+        },
+        hover,
+        0,
+        p,
+    );
+}
+
+fn draw_todo(
+    renderer: &Renderer,
+    config: &Config,
+    page: usize,
+    hover: Option<PanelAction>,
+    p: &Palette,
+) {
+    draw_group(renderer, SETTINGS_PAD, 16.0, "TASKS", p);
+    let open = config.todos.iter().filter(|todo| !todo.done).count();
+    renderer.text_weight(
+        &format!("{open} open \u{00B7} {} total", config.todos.len()),
+        240.0,
+        16.0,
+        144.0,
+        12.0,
+        8.5,
+        p.muted,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_TEXT_ALIGNMENT_TRAILING,
+    );
+
+    let pages = config.todos.len().div_ceil(TODO_ROWS).max(1);
+    let page = page.min(pages - 1);
+    let start = page * TODO_ROWS;
+
+    if config.todos.is_empty() {
+        renderer.text_left_weight(
+            "No tasks yet. Add one to keep your focus.",
+            SETTINGS_PAD,
+            44.0,
+            368.0,
+            14.0,
+            9.5,
+            p.secondary,
+            DWRITE_FONT_WEIGHT_NORMAL,
+        );
+    }
+
+    for (index, todo) in config.todos.iter().skip(start).take(TODO_ROWS).enumerate() {
+        let y = 40.0 + index as f32 * 34.0;
+        let hovered = hover == Some(PanelAction::TodoToggle(index));
+        if hovered {
+            renderer.fill_round(SETTINGS_PAD, y, 368.0, 28.0, 6.0, p.card);
+        }
+        let box_color = if todo.done { p.accent } else { p.border };
+        renderer.fill_round(SETTINGS_PAD, y + 7.0, 16.0, 16.0, 4.0, box_color);
+        if todo.done {
+            renderer.text_weight(
+                "\u{2713}",
+                SETTINGS_PAD,
+                y + 7.0,
+                16.0,
+                16.0,
+                10.0,
+                p.bg,
+                DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                DWRITE_TEXT_ALIGNMENT_CENTER,
+            );
+        }
+        let text = if todo.text.chars().count() > 46 {
+            todo.text.chars().take(45).collect::<String>() + "\u{2026}"
+        } else {
+            todo.text.clone()
+        };
+        renderer.text_left_weight(
+            &text,
+            SETTINGS_PAD + 24.0,
+            y + 7.0,
+            294.0,
+            16.0,
+            9.5,
+            if todo.done { p.muted } else { p.text },
+            DWRITE_FONT_WEIGHT_NORMAL,
+        );
+        renderer.text_weight(
+            "\u{00D7}",
+            354.0,
+            y + 4.0,
+            30.0,
+            20.0,
+            14.0,
+            if hover == Some(PanelAction::TodoDelete(index)) {
+                p.bad
+            } else {
+                p.muted
+            },
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_TEXT_ALIGNMENT_CENTER,
+        );
+    }
+
+    if let Some(rect) = settings_rect(PanelAction::TodoAdd, 0) {
+        draw_chip(
+            renderer,
+            rect,
+            "Add task",
+            false,
+            hover == Some(PanelAction::TodoAdd),
+            p,
+            8.5,
+        );
+    }
+    if let Some(rect) = settings_rect(PanelAction::TodoClearDone, 0) {
+        draw_chip(
+            renderer,
+            rect,
+            "Clear completed",
+            false,
+            hover == Some(PanelAction::TodoClearDone),
+            p,
+            8.5,
+        );
+    }
+    if pages > 1 {
+        if let Some(rect) = settings_rect(PanelAction::TodoPrevPage, 0) {
+            draw_chip(
+                renderer,
+                rect,
+                "\u{2039}",
+                false,
+                hover == Some(PanelAction::TodoPrevPage),
+                p,
+                12.0,
+            );
+        }
+        renderer.text_weight(
+            &format!("{}/{}", page + 1, pages),
+            314.0,
+            218.0,
+            34.0,
+            20.0,
+            8.5,
+            p.secondary,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_TEXT_ALIGNMENT_CENTER,
+        );
+        if let Some(rect) = settings_rect(PanelAction::TodoNextPage, 0) {
+            draw_chip(
+                renderer,
+                rect,
+                "\u{203A}",
+                false,
+                hover == Some(PanelAction::TodoNextPage),
+                p,
+                12.0,
+            );
+        }
+    }
+}
+
+fn format_time(seconds: u64) -> String {
+    let minutes = seconds / 60;
+    let seconds = seconds % 60;
+    format!("{minutes:02}:{seconds:02}")
+}
+
+fn format_rate(bytes_per_second: f64) -> String {
+    let value = bytes_per_second.max(0.0);
+    if value < 1_000.0 {
+        format!("{value:.0}B")
+    } else if value < 1_000_000.0 {
+        format!("{:.1}K", value / 1_000.0)
+    } else if value < 1_000_000_000.0 {
+        format!("{:.1}M", value / 1_000_000.0)
+    } else {
+        format!("{:.1}G", value / 1_000_000_000.0)
     }
 }
 
@@ -1499,21 +1978,6 @@ fn accent_color(hex: &str) -> D2D1_COLOR_F {
     rgb(r, g, b, 1.0)
 }
 
-fn label_advance(label: &str, size: f32) -> f32 {
-    let units = match label {
-        "CPU" => 2.05,
-        "GPU" => 2.10,
-        "MEM" => 2.45,
-        "DISK" => 2.30,
-        "TEMP" => 2.70,
-        "INTEL" => 2.75,
-        "NVIDIA" => 3.45,
-        "AMD" => 2.15,
-        _ => label.chars().count() as f32 * 0.56,
-    };
-    units * size
-}
-
 fn short_name(name: &str) -> String {
     let mut name = name.trim().to_string();
     loop {
@@ -1547,11 +2011,4 @@ fn short_name(name: &str) -> String {
 
 fn gib(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-}
-
-fn uptime(seconds: u64) -> (u64, u64, u64) {
-    let days = seconds / 86_400;
-    let hours = (seconds % 86_400) / 3_600;
-    let minutes = (seconds % 3_600) / 60;
-    (days, hours, minutes)
 }

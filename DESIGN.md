@@ -50,12 +50,13 @@ width = 2 * 4 + 2 * 6 + cells * 72 + (cells - 1) * 10
 Cell anatomy:
 
 ```text
-CPU   --°          <- label and temperature, 9 px normal
-53%                <- primary value, 17 px semibold
-[========------]   <- utilization/capacity bar, 2.5 px
+CPU              --°   <- label left; temperature right, 9 px normal
+53%                    <- primary value, 17 px semibold
+[========------]       <- utilization/capacity bar, 2.5 px
 ```
 
-The temperature follows the label, separated by a 4 px optical gap. Its color is
+The label is left-aligned. Temperature, upload rate, or other secondary detail
+is right-aligned in the cell so large text sizes cannot collide. The detail is
 secondary text under normal conditions and warning/bad when hot.
 
 ### Hover panel
@@ -65,8 +66,10 @@ secondary text under normal conditions and warning/bad when hot.
 | Panel width | 400 DIP |
 | Side margin | 6 DIP left and right |
 | Overview height | 280 DIP |
+| Pomodoro height | 360 DIP |
+| Todo height | 320 DIP |
 | Settings height | 332 DIP |
-| Appearance height | 156 DIP |
+| Appearance height | 204 DIP |
 | Outer radius | 18 px |
 | Border | 1 px |
 | Bottom tab bar height | 36 px |
@@ -82,14 +85,14 @@ Layout:
 CPU                         MEMORY
 53%                         10.9G
 temp -- · 8 threads         of 15.8G · 69% used
-[core bars]                 [====================]
+NET  ↓ 12.4M  ↑ 1.2M        [====================]
 
 DISK                        GRAPHICS
 322G                        Iris Plus   14%   --°
 47G free · 49°C             MX350        0%   52°
 [====================]      2 adapters · max 52°
 
-Overview   Settings   Appearance              UP 7h 38m
+Overview  Pomodoro  Todo  Settings  Appearance   v0.1.0
 ```
 
 The panel is centered on the strip, clamped to the monitor work area, and
@@ -109,13 +112,15 @@ Use `Segoe UI` through DirectWrite.
 | Role | Size | Weight |
 | --- | --- | --- |
 | Strip label | 9.0 | 400 |
-| Strip temperature | 9.0 | 400 |
+| Strip detail (temp/network) | 9.0 | 400 |
 | Strip value | 17.0 | 600 |
 | Panel tab | 9.5 | 400/600 selected |
+| Pomodoro time | 42.0 | 600 |
+| Todo text | 9.5 | 400 |
 | Settings group label | 9.0 | 400 |
 | Settings control | 9.0 | 400/600 selected |
 | Settings footer | 8.5 | 400 |
-| Panel uptime | 9.0 | 400 |
+| Panel version | 8.5 | 400 |
 | Card label | 9.0 | 400 |
 | Card value | 24.0 | 600 |
 | Card secondary | 9.5 | 400 |
@@ -135,6 +140,10 @@ Rules:
 - Display memory and disk in GiB with one decimal or whole numbers as
   appropriate; `G` is an intentional compact unit in the strip.
 - Use `°C` in the panel and `°` in the strip.
+- The Compact / Normal / Large text-size choices scale all text through the
+  renderer; keep labels short enough to survive a 15% increase.
+- Network throughput uses compact `K`, `M`, and `G` suffixes and arrows:
+  `↓` download, `↑` upload.
 
 ## Color
 
@@ -207,12 +216,16 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 
 ### Panel tab bar
 
-- `Overview`, `Settings`, and `Appearance` tabs on the bottom leading edge.
+- `Overview`, `Pomodoro`, `Todo`, `Settings`, and `Appearance` tabs on the
+  bottom leading edge. Tabs are 58 px wide with 5 px gaps.
 - The selected tab uses primary text, a subtle card fill, and a 2 px accent
   underline. Hovering an unselected tab applies the same card fill and primary
   text.
-- `UP <duration>` right-aligned in the same bottom bar, secondary.
+- The current version, such as `v0.1.0`, is right-aligned in the same bottom
+  bar, secondary.
 - No divider; the 36 px bottom bar supplies separation.
+- The bottom anchor keeps the tab strip under the pointer across panel height
+  changes.
 
 ### Cards
 
@@ -220,11 +233,13 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 - Primary value in 24 px semibold, neutral unless warning/bad.
 - Secondary line in 9.5 px: temperature, total, free space, or adapter name.
 - Memory and disk cards use a 3 px bar at the bottom.
-- The CPU card uses one 4 px bar per thread at the bottom instead of a single
-  utilization bar.
+- The CPU card shows overall load, temperature, and thread count. It does not
+  use per-core mini bars; they were unreadable at card scale. A compact
+  `NET ↓ … ↑ …` line sits at the bottom of the CPU card.
 - The GPU card uses one row per adapter, with name, utilization, temperature,
   and a 2 px mini bar. If there are multiple adapters, a footer summarizes the
   count and highest available temperature.
+- Memory never shows a temperature detail.
 
 ### Settings tab
 
@@ -236,9 +251,9 @@ panel is 332 px while Settings is active.
 | 1 | Position: Left / Right | Offset: − / value / + |
 | 2 | Memory: GB / % | Disk: GB / % |
 | 3 | Refresh: 0.5s / 1s / 2s | Hover delay: 0 / 150 / 220 / 400 ms |
-| 4 | Widgets: CPU / MEM / DISK | |
+| 4 | Widgets: CPU / MEM / DISK / NET | |
 | 5 | GPUs: one chip per detected adapter | |
-| Footer | Changes save automatically (note) | Reset defaults |
+| Footer | Start with Windows | Reset defaults |
 
 - Group labels are muted 9 px uppercase.
 - Controls are 24 px high with a 6 px radius.
@@ -249,17 +264,20 @@ panel is 332 px while Settings is active.
 - Every change applies immediately and writes the config file.
 - Each GPU chip toggles that adapter independently; deselecting every adapter
   removes the GPU widget, and selecting one restores it.
+- The footer toggle writes or removes `TaskbarStats` in the current user's Run
+  key.
 - `Reset defaults` restores the default config and updates the UI immediately.
 
 ### Appearance tab
 
 The appearance surface keeps visual choices separate from behavior settings. The
-panel is 156 px while Appearance is active.
+panel is 204 px while Appearance is active.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
 | 1 | Theme: System / Dark / Light / AMOLED / Slate / Sand (full width) | |
 | 2 | Style: Solid / Blur / Clear | Accent: six swatches |
+| 3 | Text size: Compact / Normal / Large (full width) | |
 
 - Theme controls the color palette; style controls Solid, Blur, or Clear
   surfaces.
@@ -267,15 +285,38 @@ panel is 156 px while Appearance is active.
 - Accent swatches update progress fills immediately.
 - Accent swatches are 20 px; the selected swatch gets a 1 px primary ring,
   hovered swatches get an accent ring.
+- Text size scales all renderer text and writes `font_scale` (`0.9`, `1.0`, or
+  `1.15`).
 - Every change applies immediately and writes the config file.
+
+### Pomodoro tab
+
+- Large `MM:SS` countdown in a 368 × 96 card, with phase, running state, and a
+  6 px progress bar.
+- `Start/Pause`, `Reset`, and `Skip` controls are 28 px high.
+- Focus and break presets are separate two-chip rows.
+- The completed-session count is secondary text below the controls.
+- At phase end, switch phases and send a tray balloon notification. The break
+  starts automatically; the next focus session starts paused.
+
+### Todo tab
+
+- Five 34 px rows per page, each with a 16 px checkbox, task text, and a delete
+  `×`.
+- `Add task` opens a small native text dialog; `Clear completed` removes done
+  tasks.
+- Page controls appear only when more than one page is needed.
+- Up to 20 tasks are stored; empty text is discarded by config validation.
 
 ### Missing data
 
 - Strip temperature: `--°`.
 - Panel temperature: `temp --`.
 - GPU row temperature: `--°`.
+- Memory: no temperature detail at all.
+- Network: `0B` when no traffic or no counter is available.
 - No GPUs: value `--`, secondary `not detected`.
-- No cores or no GPU load: omit the fill; keep the track.
+- No GPU load: omit the fill; keep the track.
 
 ## Interaction
 
@@ -287,17 +328,24 @@ panel is 156 px while Appearance is active.
 - Middle-clicking the strip opens Settings pinned.
 - Dragging the strip horizontally repositions it; on release the position and
   offset are saved and snapped into the nearest free taskbar gap.
-- Opening the Settings or Appearance tab does not pin a hover-opened panel.
+- Opening any tab, including Settings, Appearance, Pomodoro, or Todo, does not
+  pin a hover-opened panel.
 - Tabs stay at the bottom, so switching tabs never moves the tab bar out from
   under the pointer even when the panel height changes.
+- An open panel reuses its current blurred backdrop when resizing; do not hide
+  and recapture on tab changes.
 - Clicking non-button panel space does not pin a hover-opened panel; it keeps
   the panel unpinned so leaving still starts the hide timer. On a pinned panel,
   the same click closes it.
-- Leaving an unpinned panel, including Settings or Appearance, starts the hide
-  timer.
+- Leaving an unpinned panel, including Settings, Appearance, Pomodoro, or Todo,
+  starts the hide timer.
 - Settings and Appearance controls apply changes immediately and save automatically.
-- Right-clicking the strip opens `Settings`, `Reload config`, and `Exit`.
-- The panel never takes focus (`WS_EX_NOACTIVATE`).
+- Right-clicking the strip or tray icon opens `Settings`, `Reload config`, and
+  `Exit`.
+- The tray icon stays present while the app runs. Left-click opens the panel.
+- The panel never takes focus (`WS_EX_NOACTIVATE`) except for the short-lived
+  Add task dialog, which is a normal top-level window.
+- Pomodoro notifications use the tray icon and a 10 second balloon timeout.
 - The panel fades in over 140 ms and fades out over 110 ms, with an ease-out
   curve. The hide timer is 260 ms. Motion is skipped when the Windows
   `SPI_GETCLIENTAREAANIMATION` setting is disabled. Do not animate the
@@ -322,8 +370,9 @@ panel is 156 px while Appearance is active.
 1. Strip at 100%: labels, temperatures, values, and bars align; no cell text
    touches its neighbor.
 2. Five-cell layout at 420 px; strip remains clear of the notification area.
-3. Overview panel at 400 × 280, Settings at 400 × 332, and Appearance at
-   400 × 156; all content fits without clipping, with 6 DIP side margins.
+3. Overview at 400 × 280, Pomodoro at 400 × 360, Todo at 400 × 320, Settings at
+   400 × 332, and Appearance at 400 × 204; all content fits without clipping,
+   with 6 DIP side margins.
 4. System, Dark, Light, AMOLED, Slate, and Sand themes retain hierarchy and
    contrast in Solid, Blur, and Clear styles.
 5. `mem_mode` and `disk_mode` in `gb` and `percent` do not overflow cells.
@@ -334,6 +383,7 @@ panel is 156 px while Appearance is active.
    changes.
 9. Settings and Appearance controls apply live, save automatically, and
    survive close/reopen.
-10. Position, offset, widget visibility, per-GPU visibility, theme, style,
-    accent, refresh, hover delay, memory mode, disk mode, reset, and GPU
-    toggles work.
+10. Position, offset, widget visibility (including NET), per-GPU visibility,
+    theme, style, accent, text size, refresh, hover delay, memory mode, disk
+    mode, startup, reset, GPU toggles, Pomodoro controls, and Todo controls
+    work.
