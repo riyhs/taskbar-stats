@@ -205,6 +205,7 @@ impl Renderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn stroke_round(
         &self,
         x: f32,
@@ -273,7 +274,7 @@ impl Renderer {
                 bottom: y + h,
             };
             let utf16: Vec<u16> = text.encode_utf16().collect();
-            let _ = self.target.DrawText(
+            self.target.DrawText(
                 &utf16,
                 &format,
                 &rect,
@@ -284,6 +285,7 @@ impl Renderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn text_left_weight(
         &self,
         text: &str,
@@ -308,6 +310,7 @@ impl Renderer {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_background(
         &self,
         pixels: &[u8],

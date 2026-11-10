@@ -66,8 +66,11 @@ The app exits through the strip context menu: right-click the strip and choose
 | `src/disk.rs` | Volume extent checks and physical-disk temperature through storage IOCTLs |
 | `src/config.rs` | TOML config load/save, defaults, validation, legacy migration |
 | `src/logging.rs` | Append-only runtime log |
-| `build.rs` | Embeds the application manifest |
+| `build.rs` | Embeds the application manifest and compiles the icon resource |
+| `taskbar-stats.rc`, `assets/icon.ico` | Windows executable icon resource |
 | `scripts/build.bat` | Visual Studio/SDK bootstrap and Cargo invocation |
+| `.github/workflows/ci.yml` | Format, clippy, test, and release-build checks |
+| `.github/workflows/release.yml` | Tag-driven Windows zip/exe release with checksum |
 
 ## Invariants
 
@@ -116,9 +119,10 @@ The app exits through the strip context menu: right-click the strip and choose
 - Settings and Appearance controls use the 24 px chip geometry, 6 px radius,
   soft card border, card fill, 2 px accent selected underline, and primary
   semibold selected text.
-- Keep the Overview panel at 400 × 272 DIP, Settings at 400 × 344 DIP, and
-  Appearance at 400 × 176 DIP unless layout and hit-testing constants are
-  updated together.
+- Keep the Overview panel at 400 × 280 DIP, Settings at 400 × 332 DIP, and
+  Appearance at 400 × 156 DIP unless layout and hit-testing constants are
+  updated together. Tabs belong on the bottom bar so switching tabs does not
+  move them out from under the pointer.
 - The popup adds 6 DIP transparent side margins; subtract them before hit
   testing.
 - Convert popup mouse coordinates from pixels to DIPs before hit testing.

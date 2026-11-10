@@ -64,12 +64,12 @@ secondary text under normal conditions and warning/bad when hot.
 | --- | --- |
 | Panel width | 400 DIP |
 | Side margin | 6 DIP left and right |
-| Overview height | 272 DIP |
-| Settings height | 344 DIP |
-| Appearance height | 176 DIP |
+| Overview height | 280 DIP |
+| Settings height | 332 DIP |
+| Appearance height | 156 DIP |
 | Outer radius | 18 px |
 | Border | 1 px |
-| Header height | 44 px |
+| Bottom tab bar height | 36 px |
 | Padding | 16 px |
 | Card gap | 10 px |
 | Card size | 179 × 101 px |
@@ -79,8 +79,6 @@ secondary text under normal conditions and warning/bad when hot.
 Layout:
 
 ```text
-Overview   Settings   Appearance              UP 7h 38m
-
 CPU                         MEMORY
 53%                         10.9G
 temp -- · 8 threads         of 15.8G · 69% used
@@ -90,6 +88,8 @@ DISK                        GRAPHICS
 322G                        Iris Plus   14%   --°
 47G free · 49°C             MX350        0%   52°
 [====================]      2 adapters · max 52°
+
+Overview   Settings   Appearance              UP 7h 38m
 ```
 
 The panel is centered on the strip, clamped to the monitor work area, and
@@ -205,14 +205,14 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
   visible adapter uses its name as the card label and its temperature as the
   secondary line.
 
-### Panel header
+### Panel tab bar
 
-- `Overview`, `Settings`, and `Appearance` tabs on the leading edge.
+- `Overview`, `Settings`, and `Appearance` tabs on the bottom leading edge.
 - The selected tab uses primary text, a subtle card fill, and a 2 px accent
   underline. Hovering an unselected tab applies the same card fill and primary
   text.
-- `UP <duration>` right-aligned, secondary.
-- No divider; the 44 px header band supplies separation.
+- `UP <duration>` right-aligned in the same bottom bar, secondary.
+- No divider; the 36 px bottom bar supplies separation.
 
 ### Cards
 
@@ -229,7 +229,7 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 ### Settings tab
 
 The settings surface is a two-column form with a 10 px gap between columns. The
-panel is 344 px while Settings is active.
+panel is 332 px while Settings is active.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
@@ -254,7 +254,7 @@ panel is 344 px while Settings is active.
 ### Appearance tab
 
 The appearance surface keeps visual choices separate from behavior settings. The
-panel is 176 px while Appearance is active.
+panel is 156 px while Appearance is active.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
@@ -288,8 +288,8 @@ panel is 176 px while Appearance is active.
 - Dragging the strip horizontally repositions it; on release the position and
   offset are saved and snapped into the nearest free taskbar gap.
 - Opening the Settings or Appearance tab does not pin a hover-opened panel.
-- Switching tabs keeps the panel open for a short 650 ms settle window while it
-  resizes, so the pointer can move into the new layout.
+- Tabs stay at the bottom, so switching tabs never moves the tab bar out from
+  under the pointer even when the panel height changes.
 - Clicking non-button panel space does not pin a hover-opened panel; it keeps
   the panel unpinned so leaving still starts the hide timer. On a pinned panel,
   the same click closes it.
@@ -322,8 +322,8 @@ panel is 176 px while Appearance is active.
 1. Strip at 100%: labels, temperatures, values, and bars align; no cell text
    touches its neighbor.
 2. Five-cell layout at 420 px; strip remains clear of the notification area.
-3. Overview panel at 400 × 272, Settings at 400 × 344, and Appearance at
-   400 × 176; all content fits without clipping, with 6 DIP side margins.
+3. Overview panel at 400 × 280, Settings at 400 × 332, and Appearance at
+   400 × 156; all content fits without clipping, with 6 DIP side margins.
 4. System, Dark, Light, AMOLED, Slate, and Sand themes retain hierarchy and
    contrast in Solid, Blur, and Clear styles.
 5. `mem_mode` and `disk_mode` in `gb` and `percent` do not overflow cells.

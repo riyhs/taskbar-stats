@@ -21,21 +21,23 @@ const TEMP_SIZE: f32 = 9.0;
 
 pub const PANEL_WIDTH: f32 = 400.0;
 pub const PANEL_MARGIN: f32 = 6.0;
-const SETTINGS_HEIGHT: f32 = 344.0;
+const SETTINGS_HEIGHT: f32 = 332.0;
 const SETTINGS_PAD: f32 = 16.0;
 const SETTINGS_COL_W: f32 = 179.0;
 const SETTINGS_COL2: f32 = SETTINGS_PAD + SETTINGS_COL_W + 10.0;
-const SETTINGS_ROW1: f32 = 56.0;
-const SETTINGS_ROW2: f32 = 104.0;
-const SETTINGS_ROW3: f32 = 152.0;
-const SETTINGS_WIDGETS: f32 = 200.0;
-const SETTINGS_GPUS: f32 = 248.0;
-const SETTINGS_FOOTER: f32 = 296.0;
-const APPEARANCE_HEIGHT: f32 = 176.0;
-const APPEARANCE_ROW1: f32 = 56.0;
-const APPEARANCE_ROW2: f32 = 104.0;
+const SETTINGS_ROW1: f32 = 16.0;
+const SETTINGS_ROW2: f32 = 64.0;
+const SETTINGS_ROW3: f32 = 112.0;
+const SETTINGS_WIDGETS: f32 = 160.0;
+const SETTINGS_GPUS: f32 = 208.0;
+const SETTINGS_FOOTER: f32 = 256.0;
+const APPEARANCE_HEIGHT: f32 = 156.0;
+const APPEARANCE_ROW1: f32 = 16.0;
+const APPEARANCE_ROW2: f32 = 64.0;
 const TAB_W: f32 = 62.0;
 const TAB_H: f32 = 28.0;
+const TAB_BOTTOM_PAD: f32 = 8.0;
+const TAB_BAND: f32 = TAB_H + TAB_BOTTOM_PAD;
 
 pub const ACCENTS: [&str; 6] = [
     "#5B9CFF", "#4CC87E", "#F5A641", "#F55C5C", "#B07CFF", "#50C8D8",
@@ -87,7 +89,7 @@ pub enum PanelAction {
 
 pub fn panel_height(tab: PanelTab) -> f32 {
     match tab {
-        PanelTab::Overview => 272.0,
+        PanelTab::Overview => 280.0,
         PanelTab::Settings => SETTINGS_HEIGHT,
         PanelTab::Appearance => APPEARANCE_HEIGHT,
     }
@@ -99,13 +101,13 @@ fn contains(rect: Rect, x: f32, y: f32) -> bool {
     x >= rect.0 && x < rect.0 + rect.2 && y >= rect.1 && y < rect.1 + rect.3
 }
 
-fn tab_rect(tab: PanelTab) -> Rect {
+fn tab_rect(tab: PanelTab, height: f32) -> Rect {
     let x = match tab {
         PanelTab::Overview => SETTINGS_PAD,
         PanelTab::Settings => SETTINGS_PAD + TAB_W + 6.0,
         PanelTab::Appearance => SETTINGS_PAD + 2.0 * (TAB_W + 6.0),
     };
-    (x, 8.0, TAB_W, TAB_H)
+    (x, height - TAB_H - TAB_BOTTOM_PAD, TAB_W, TAB_H)
 }
 
 fn segment_rect(column_x: f32, row_y: f32, count: usize, index: usize) -> Rect {
@@ -231,12 +233,13 @@ const APPEARANCE_ACTIONS: &[PanelAction] = &[
 ];
 
 pub fn action_at(tab: PanelTab, x: f32, y: f32, gpu_count: usize) -> Option<PanelAction> {
+    let height = panel_height(tab);
     for (item, action) in [
         (PanelTab::Overview, PanelAction::TabOverview),
         (PanelTab::Settings, PanelAction::TabSettings),
         (PanelTab::Appearance, PanelAction::TabAppearance),
     ] {
-        if contains(tab_rect(item), x, y) {
+        if contains(tab_rect(item, height), x, y) {
             return Some(action);
         }
     }
@@ -521,6 +524,7 @@ fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<S
     cells
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_panel(
     renderer: &Renderer,
     hwnd: HWND,
@@ -563,11 +567,11 @@ pub fn draw_panel(
         format!("{minutes}m")
     };
     let pad = 16.0;
-    draw_tabs(renderer, tab, hover, &p);
+    draw_tabs(renderer, tab, height, hover, &p);
     renderer.text_weight(
         &format!("UP {uptime_text}"),
         width - pad - 96.0,
-        13.0,
+        height - TAB_H - 2.0,
         96.0,
         14.0,
         9.0,
@@ -588,9 +592,9 @@ pub fn draw_panel(
     }
 
     let gap = 10.0;
-    let top = 44.0;
+    let top = 16.0;
     let card_width = (width - 2.0 * pad - gap) / 2.0;
-    let card_height = (height - top - pad - gap) / 2.0;
+    let card_height = (height - top - TAB_BAND - pad - gap) / 2.0;
 
     let cpu_card = (pad, top, card_width, card_height);
     let mem_card = (pad + card_width + gap, top, card_width, card_height);
@@ -751,7 +755,13 @@ pub fn draw_panel(
     renderer.end(hwnd)
 }
 
-fn draw_tabs(renderer: &Renderer, tab: PanelTab, hover: Option<PanelAction>, p: &Palette) {
+fn draw_tabs(
+    renderer: &Renderer,
+    tab: PanelTab,
+    height: f32,
+    hover: Option<PanelAction>,
+    p: &Palette,
+) {
     for (item, action, label) in [
         (PanelTab::Overview, PanelAction::TabOverview, "Overview"),
         (PanelTab::Settings, PanelAction::TabSettings, "Settings"),
@@ -761,7 +771,7 @@ fn draw_tabs(renderer: &Renderer, tab: PanelTab, hover: Option<PanelAction>, p: 
             "Appearance",
         ),
     ] {
-        let (x, y, w, h) = tab_rect(item);
+        let (x, y, w, h) = tab_rect(item, height);
         let selected = tab == item;
         let hovered = hover == Some(action);
         if selected || hovered {

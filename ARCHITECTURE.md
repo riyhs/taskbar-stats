@@ -84,8 +84,8 @@ contributes one cell per physical adapter.
 
 Popup placement:
 
-- Content width 400 DIP plus 6 DIP transparent side margins; height 272 DIP
-  for Overview, 344 DIP for Settings, and 176 DIP for Appearance, scaled by
+- Content width 400 DIP plus 6 DIP transparent side margins; height 280 DIP
+  for Overview, 332 DIP for Settings, and 156 DIP for Appearance, scaled by
   taskbar DPI.
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
@@ -123,7 +123,7 @@ UI composition lives in `src/ui.rs`:
 
 - `strip_width_dip` and `strip_cell_count` calculate the strip width.
 - `draw_strip` builds cells and draws labels, temperatures, values, and bars.
-- `draw_panel` draws the tabbed header and dispatches to the overview cards,
+- `draw_panel` draws the bottom tab bar and dispatches to the overview cards,
   the settings form, or the appearance form.
 - `draw_settings`, `draw_appearance`, `action_at`, and `settings_rect` share
   one fixed control geometry for drawing and hit testing.
@@ -160,9 +160,8 @@ Popup input:
 - Mouse movement cancels a pending hide and updates the hovered control.
 - Mouse leave clears hover and starts a hide timer unless pinned.
 - Left click resolves `PanelAction` through `ui::action_at`.
-  - Tab clicks switch the panel without pinning a hover-opened popup. A short
-    settle timer keeps a shrinking panel open long enough for the pointer to
-    enter the new tab layout.
+  - Tab clicks switch the panel without pinning a hover-opened popup. The tab
+    bar is bottom-anchored, so it stays under the pointer across height changes.
   - Settings and Appearance controls mutate the config, save it, and apply
     immediately.
   - Empty panel space leaves an unpinned panel unpinned (so mouse leave still
@@ -173,7 +172,7 @@ Popup input:
 ## Settings and Appearance flow
 
 Settings and Appearance are control surfaces rendered inside the same popup.
-The panel height is 272 DIP for Overview, 344 DIP for Settings, and 176 DIP for
+The panel height is 280 DIP for Overview, 332 DIP for Settings, and 156 DIP for
 Appearance.
 
 1. A click arrives at the popup in physical pixels.
@@ -193,8 +192,7 @@ manual editing is not required.
 
 `TaskbarCreated` triggers reattachment after Explorer restarts. Display, DPI,
 theme, and settings changes trigger re-placement and redraw. Switching tabs
-  uses the same geometry and reruns `show_popup`, so height and blur capture stay
-  correct.
+  reruns `show_popup`, so the panel height and blur capture stay correct.
 
 ## Sampling
 
@@ -289,8 +287,10 @@ the panic message before the default hook runs.
 - Rust edition 2021, Windows x64 MSVC target.
 - `windows` crate 0.58 with explicit Win32/WDK feature gates.
 - `serde` + `toml` for configuration.
-- `build.rs` embeds `app.manifest` into the executable and strips the `\\?\`
-  prefix from the manifest path.
+- `build.rs` embeds `app.manifest` into the executable, strips the `\\?\`
+  prefix from the manifest path, and compiles `taskbar-stats.rc` with the Windows
+  SDK `rc.exe`. The resource file embeds `assets/icon.ico`. If `rc.exe` cannot be
+  found, the build continues with a warning and no executable icon.
 - Release profile enables size optimization, LTO, one codegen unit, abort on
   panic, and symbol stripping.
 - `scripts/build.bat` locates Visual Studio, loads the C++ environment, adds

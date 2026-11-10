@@ -90,8 +90,7 @@ impl Config {
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let body = toml::to_string_pretty(self)
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+        let body = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(path, body)
     }
 

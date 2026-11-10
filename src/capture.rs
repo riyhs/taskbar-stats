@@ -121,7 +121,7 @@ fn blur_horizontal(source: &[u8], target: &mut [u8], width: usize, height: usize
         let mut sums = [0u32; 4];
         let mut count = 0usize;
         for x in 0..=radius.min(width - 1) {
-            add_pixel(source, (row + x * 4) as usize, &mut sums);
+            add_pixel(source, row + x * 4, &mut sums);
             count += 1;
         }
         for x in 0..width {
@@ -131,11 +131,11 @@ fn blur_horizontal(source: &[u8], target: &mut [u8], width: usize, height: usize
             }
             let add = x + radius + 1;
             if add < width {
-                add_pixel(source, (row + add * 4) as usize, &mut sums);
+                add_pixel(source, row + add * 4, &mut sums);
                 count += 1;
             }
             if x >= radius {
-                remove_pixel(source, (row + (x - radius) * 4) as usize, &mut sums);
+                remove_pixel(source, row + (x - radius) * 4, &mut sums);
                 count -= 1;
             }
         }

@@ -38,7 +38,6 @@ const TIMER_HIDE: usize = 4;
 const TIMER_ANIM: usize = 5;
 const PANEL_SHOW_MS: u64 = 140;
 const PANEL_HIDE_MS: u64 = 110;
-const TAB_SETTLE_MS: u32 = 650;
 
 const MUTEX_NAME: PCWSTR = w!("Local\\TaskbarStats.SingleInstance");
 const WM_MOUSELEAVE_MSG: u32 = 0x02A3;
@@ -104,7 +103,6 @@ pub fn run() -> Result<()> {
             panel_hover: None,
             hover_timer: false,
             hide_timer: false,
-            tab_settle: false,
             taskbar_created,
             light: false,
             backdrop: None,
@@ -161,7 +159,6 @@ struct App {
     panel_hover: Option<ui::PanelAction>,
     hover_timer: bool,
     hide_timer: bool,
-    tab_settle: bool,
     taskbar_created: u32,
     light: bool,
     backdrop: Option<Vec<u8>>,
@@ -317,15 +314,7 @@ impl App {
                     }
                     TIMER_HIDE => {
                         self.hide_timer = false;
-                        if self.tab_settle {
-                            self.tab_settle = false;
-                            if !self.pinned
-                                && !self.cursor_over(self.strip)
-                                && !self.cursor_over(self.popup)
-                            {
-                                self.hide_popup();
-                            }
-                        } else if !self.pinned
+                        if !self.pinned
                             && !self.cursor_over(self.strip)
                             && !self.cursor_over(self.popup)
                         {
@@ -385,7 +374,6 @@ impl App {
                     self.popup_alpha = 1.0;
                     self.render_popup();
                 }
-                self.tab_settle = false;
                 self.track_leave(hwnd);
                 if self.hide_timer {
                     unsafe {
@@ -406,7 +394,7 @@ impl App {
                     self.panel_hover = None;
                     self.render_popup();
                 }
-                if !self.pinned && !self.tab_settle {
+                if !self.pinned {
                     self.start_hide_timer();
                 }
                 LRESULT(0)
@@ -606,7 +594,6 @@ impl App {
     fn show_popup(&mut self, pin: bool) {
         let Some(tb) = self.taskbar else { return };
         let was_visible = self.popup_visible;
-        self.tab_settle = false;
         self.cancel_fade();
         if !was_visible {
             self.popup_alpha = 0.0;
@@ -689,7 +676,6 @@ impl App {
             }
             self.hide_timer = false;
         }
-        self.tab_settle = false;
         self.pinned = false;
         self.start_fade(0.0, PANEL_HIDE_MS, true);
     }
@@ -704,7 +690,6 @@ impl App {
         self.fade = None;
         self.popup_visible = false;
         self.pinned = false;
-        self.tab_settle = false;
         self.panel_tab = ui::PanelTab::Overview;
         self.panel_hover = None;
         self.popup_alpha = 1.0;
@@ -946,16 +931,8 @@ impl App {
     }
 
     fn switch_tab(&mut self, tab: ui::PanelTab) {
-        let changed = self.panel_tab != tab;
         self.panel_tab = tab;
         self.show_popup(self.pinned);
-        if changed {
-            self.tab_settle = true;
-            unsafe {
-                SetTimer(self.strip, TIMER_HIDE, TAB_SETTLE_MS, None);
-            }
-            self.hide_timer = true;
-        }
     }
 
     fn handle_panel_action(&mut self, action: ui::PanelAction) {
