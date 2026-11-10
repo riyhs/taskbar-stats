@@ -21,18 +21,20 @@ const TEMP_SIZE: f32 = 9.0;
 
 pub const PANEL_WIDTH: f32 = 400.0;
 pub const PANEL_MARGIN: f32 = 6.0;
-const SETTINGS_HEIGHT: f32 = 392.0;
+const SETTINGS_HEIGHT: f32 = 344.0;
 const SETTINGS_PAD: f32 = 16.0;
 const SETTINGS_COL_W: f32 = 179.0;
 const SETTINGS_COL2: f32 = SETTINGS_PAD + SETTINGS_COL_W + 10.0;
 const SETTINGS_ROW1: f32 = 56.0;
 const SETTINGS_ROW2: f32 = 104.0;
 const SETTINGS_ROW3: f32 = 152.0;
-const SETTINGS_ROW4: f32 = 200.0;
-const SETTINGS_WIDGETS: f32 = 248.0;
-const SETTINGS_GPUS: f32 = 296.0;
-const SETTINGS_FOOTER: f32 = 344.0;
-const TAB_W: f32 = 58.0;
+const SETTINGS_WIDGETS: f32 = 200.0;
+const SETTINGS_GPUS: f32 = 248.0;
+const SETTINGS_FOOTER: f32 = 296.0;
+const APPEARANCE_HEIGHT: f32 = 176.0;
+const APPEARANCE_ROW1: f32 = 56.0;
+const APPEARANCE_ROW2: f32 = 104.0;
+const TAB_W: f32 = 62.0;
 const TAB_H: f32 = 28.0;
 
 pub const ACCENTS: [&str; 6] = [
@@ -43,18 +45,25 @@ pub const ACCENTS: [&str; 6] = [
 pub enum PanelTab {
     Overview,
     Settings,
+    Appearance,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PanelAction {
     TabOverview,
     TabSettings,
+    TabAppearance,
     PositionLeft,
     PositionRight,
     ThemeSystem,
     ThemeDark,
     ThemeLight,
-    ThemeGlass,
+    ThemeAmoled,
+    ThemeSlate,
+    ThemeSand,
+    StyleSolid,
+    StyleBlur,
+    StyleClear,
     MemoryGb,
     MemoryPercent,
     DiskGb,
@@ -80,6 +89,7 @@ pub fn panel_height(tab: PanelTab) -> f32 {
     match tab {
         PanelTab::Overview => 272.0,
         PanelTab::Settings => SETTINGS_HEIGHT,
+        PanelTab::Appearance => APPEARANCE_HEIGHT,
     }
 }
 
@@ -90,10 +100,12 @@ fn contains(rect: Rect, x: f32, y: f32) -> bool {
 }
 
 fn tab_rect(tab: PanelTab) -> Rect {
-    match tab {
-        PanelTab::Overview => (SETTINGS_PAD, 8.0, TAB_W, TAB_H),
-        PanelTab::Settings => (SETTINGS_PAD + TAB_W + 6.0, 8.0, TAB_W, TAB_H),
-    }
+    let x = match tab {
+        PanelTab::Overview => SETTINGS_PAD,
+        PanelTab::Settings => SETTINGS_PAD + TAB_W + 6.0,
+        PanelTab::Appearance => SETTINGS_PAD + 2.0 * (TAB_W + 6.0),
+    };
+    (x, 8.0, TAB_W, TAB_H)
 }
 
 fn segment_rect(column_x: f32, row_y: f32, count: usize, index: usize) -> Rect {
@@ -122,10 +134,13 @@ fn settings_rect(action: PanelAction, gpu_count: usize) -> Option<Rect> {
     match action {
         PanelAction::PositionLeft => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW1, 2, 0)),
         PanelAction::PositionRight => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW1, 2, 1)),
-        PanelAction::ThemeSystem => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 0)),
-        PanelAction::ThemeDark => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 1)),
-        PanelAction::ThemeLight => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 2)),
-        PanelAction::ThemeGlass => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW1, 4, 3)),
+        PanelAction::OffsetMinus => Some((SETTINGS_COL2, SETTINGS_ROW1 + 16.0, 30.0, 24.0)),
+        PanelAction::OffsetPlus => Some((
+            SETTINGS_COL2 + SETTINGS_COL_W - 30.0,
+            SETTINGS_ROW1 + 16.0,
+            30.0,
+            24.0,
+        )),
         PanelAction::MemoryGb => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW2, 2, 0)),
         PanelAction::MemoryPercent => Some(segment_rect(SETTINGS_PAD, SETTINGS_ROW2, 2, 1)),
         PanelAction::DiskGb => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW2, 2, 0)),
@@ -137,26 +152,6 @@ fn settings_rect(action: PanelAction, gpu_count: usize) -> Option<Rect> {
         PanelAction::Hover150 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 1)),
         PanelAction::Hover220 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 2)),
         PanelAction::Hover400 => Some(segment_rect(SETTINGS_COL2, SETTINGS_ROW3, 4, 3)),
-        PanelAction::OffsetMinus => Some((SETTINGS_PAD, SETTINGS_ROW4 + 16.0, 30.0, 24.0)),
-        PanelAction::OffsetPlus => Some((
-            SETTINGS_PAD + SETTINGS_COL_W - 30.0,
-            SETTINGS_ROW4 + 16.0,
-            30.0,
-            24.0,
-        )),
-        PanelAction::Accent(index) => {
-            if index >= ACCENTS.len() {
-                return None;
-            }
-            let total = ACCENTS.len() as f32 * 20.0 + (ACCENTS.len() as f32 - 1.0) * 5.0;
-            let start = SETTINGS_COL2 + (SETTINGS_COL_W - total) / 2.0;
-            Some((
-                start + index as f32 * 25.0,
-                SETTINGS_ROW4 + 16.0,
-                20.0,
-                20.0,
-            ))
-        }
         PanelAction::WidgetCpu => Some(full_row_rect(0, 3, SETTINGS_WIDGETS)),
         PanelAction::WidgetMem => Some(full_row_rect(1, 3, SETTINGS_WIDGETS)),
         PanelAction::WidgetDisk => Some(full_row_rect(2, 3, SETTINGS_WIDGETS)),
@@ -169,6 +164,28 @@ fn settings_rect(action: PanelAction, gpu_count: usize) -> Option<Rect> {
             70.0,
             24.0,
         )),
+        PanelAction::ThemeSystem => Some(full_row_rect(0, 6, APPEARANCE_ROW1)),
+        PanelAction::ThemeDark => Some(full_row_rect(1, 6, APPEARANCE_ROW1)),
+        PanelAction::ThemeLight => Some(full_row_rect(2, 6, APPEARANCE_ROW1)),
+        PanelAction::ThemeAmoled => Some(full_row_rect(3, 6, APPEARANCE_ROW1)),
+        PanelAction::ThemeSlate => Some(full_row_rect(4, 6, APPEARANCE_ROW1)),
+        PanelAction::ThemeSand => Some(full_row_rect(5, 6, APPEARANCE_ROW1)),
+        PanelAction::StyleSolid => Some(segment_rect(SETTINGS_PAD, APPEARANCE_ROW2, 3, 0)),
+        PanelAction::StyleBlur => Some(segment_rect(SETTINGS_PAD, APPEARANCE_ROW2, 3, 1)),
+        PanelAction::StyleClear => Some(segment_rect(SETTINGS_PAD, APPEARANCE_ROW2, 3, 2)),
+        PanelAction::Accent(index) => {
+            if index >= ACCENTS.len() {
+                return None;
+            }
+            let total = ACCENTS.len() as f32 * 20.0 + (ACCENTS.len() as f32 - 1.0) * 5.0;
+            let start = SETTINGS_COL2 + (SETTINGS_COL_W - total) / 2.0;
+            Some((
+                start + index as f32 * 25.0,
+                APPEARANCE_ROW2 + 16.0,
+                20.0,
+                20.0,
+            ))
+        }
         _ => None,
     }
 }
@@ -176,10 +193,8 @@ fn settings_rect(action: PanelAction, gpu_count: usize) -> Option<Rect> {
 const SETTINGS_ACTIONS: &[PanelAction] = &[
     PanelAction::PositionLeft,
     PanelAction::PositionRight,
-    PanelAction::ThemeSystem,
-    PanelAction::ThemeDark,
-    PanelAction::ThemeLight,
-    PanelAction::ThemeGlass,
+    PanelAction::OffsetMinus,
+    PanelAction::OffsetPlus,
     PanelAction::MemoryGb,
     PanelAction::MemoryPercent,
     PanelAction::DiskGb,
@@ -191,42 +206,62 @@ const SETTINGS_ACTIONS: &[PanelAction] = &[
     PanelAction::Hover150,
     PanelAction::Hover220,
     PanelAction::Hover400,
-    PanelAction::OffsetMinus,
-    PanelAction::OffsetPlus,
-    PanelAction::Accent(0),
-    PanelAction::Accent(1),
-    PanelAction::Accent(2),
-    PanelAction::Accent(3),
-    PanelAction::Accent(4),
-    PanelAction::Accent(5),
     PanelAction::WidgetCpu,
     PanelAction::WidgetMem,
     PanelAction::WidgetDisk,
     PanelAction::Reset,
 ];
 
+const APPEARANCE_ACTIONS: &[PanelAction] = &[
+    PanelAction::ThemeSystem,
+    PanelAction::ThemeDark,
+    PanelAction::ThemeLight,
+    PanelAction::ThemeAmoled,
+    PanelAction::ThemeSlate,
+    PanelAction::ThemeSand,
+    PanelAction::StyleSolid,
+    PanelAction::StyleBlur,
+    PanelAction::StyleClear,
+    PanelAction::Accent(0),
+    PanelAction::Accent(1),
+    PanelAction::Accent(2),
+    PanelAction::Accent(3),
+    PanelAction::Accent(4),
+    PanelAction::Accent(5),
+];
+
 pub fn action_at(tab: PanelTab, x: f32, y: f32, gpu_count: usize) -> Option<PanelAction> {
-    if contains(tab_rect(PanelTab::Overview), x, y) {
-        return Some(PanelAction::TabOverview);
+    for (item, action) in [
+        (PanelTab::Overview, PanelAction::TabOverview),
+        (PanelTab::Settings, PanelAction::TabSettings),
+        (PanelTab::Appearance, PanelAction::TabAppearance),
+    ] {
+        if contains(tab_rect(item), x, y) {
+            return Some(action);
+        }
     }
-    if contains(tab_rect(PanelTab::Settings), x, y) {
-        return Some(PanelAction::TabSettings);
-    }
-    if tab != PanelTab::Settings {
-        return None;
-    }
-    SETTINGS_ACTIONS
-        .iter()
-        .copied()
-        .find(|action| settings_rect(*action, gpu_count).is_some_and(|rect| contains(rect, x, y)))
-        .or_else(|| {
-            (0..gpu_count).find_map(|index| {
-                let action = PanelAction::Gpu(index);
-                settings_rect(action, gpu_count)
-                    .is_some_and(|rect| contains(rect, x, y))
-                    .then_some(action)
+    if tab == PanelTab::Settings {
+        return SETTINGS_ACTIONS
+            .iter()
+            .copied()
+            .find(|action| {
+                settings_rect(*action, gpu_count).is_some_and(|rect| contains(rect, x, y))
             })
-        })
+            .or_else(|| {
+                (0..gpu_count).find_map(|index| {
+                    let action = PanelAction::Gpu(index);
+                    settings_rect(action, gpu_count)
+                        .is_some_and(|rect| contains(rect, x, y))
+                        .then_some(action)
+                })
+            });
+    }
+    if tab == PanelTab::Appearance {
+        return APPEARANCE_ACTIONS.iter().copied().find(|action| {
+            settings_rect(*action, gpu_count).is_some_and(|rect| contains(rect, x, y))
+        });
+    }
+    None
 }
 
 pub fn strip_width_dip(config: &Config, gpu_count: usize) -> i32 {
@@ -253,7 +288,6 @@ struct Palette {
     secondary: D2D1_COLOR_F,
     text: D2D1_COLOR_F,
     accent: D2D1_COLOR_F,
-    good: D2D1_COLOR_F,
     warn: D2D1_COLOR_F,
     bad: D2D1_COLOR_F,
     highlight: D2D1_COLOR_F,
@@ -277,7 +311,7 @@ pub fn draw_strip(
     width: f32,
     height: f32,
 ) -> Result<()> {
-    let p = palette(light, config.theme == "glass", &config.accent);
+    let p = palette(light, &config.theme, &config.style, &config.accent);
     renderer.begin()?;
 
     renderer.fill_round(
@@ -502,7 +536,7 @@ pub fn draw_panel(
     background_width: u32,
     background_height: u32,
 ) -> Result<()> {
-    let p = palette(light, config.theme == "glass", &config.accent);
+    let p = palette(light, &config.theme, &config.style, &config.accent);
     renderer.begin()?;
     renderer.translate(PANEL_MARGIN, 0.0);
     if let Some(pixels) = background {
@@ -541,22 +575,16 @@ pub fn draw_panel(
         DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_TEXT_ALIGNMENT_TRAILING,
     );
-    let live_x = width - pad - 132.0;
-    renderer.fill_circle(live_x - 7.0, 19.5, 2.0, p.good);
-    renderer.text_left_weight(
-        "LIVE",
-        live_x,
-        13.0,
-        30.0,
-        14.0,
-        8.5,
-        p.good,
-        DWRITE_FONT_WEIGHT_NORMAL,
-    );
-
-    if tab == PanelTab::Settings {
-        draw_settings(renderer, config, hover, gpu_names, &p);
-        return renderer.end(hwnd);
+    match tab {
+        PanelTab::Settings => {
+            draw_settings(renderer, config, hover, gpu_names, &p);
+            return renderer.end(hwnd);
+        }
+        PanelTab::Appearance => {
+            draw_appearance(renderer, config, hover, &p);
+            return renderer.end(hwnd);
+        }
+        PanelTab::Overview => {}
     }
 
     let gap = 10.0;
@@ -727,6 +755,11 @@ fn draw_tabs(renderer: &Renderer, tab: PanelTab, hover: Option<PanelAction>, p: 
     for (item, action, label) in [
         (PanelTab::Overview, PanelAction::TabOverview, "Overview"),
         (PanelTab::Settings, PanelAction::TabSettings, "Settings"),
+        (
+            PanelTab::Appearance,
+            PanelAction::TabAppearance,
+            "Appearance",
+        ),
     ] {
         let (x, y, w, h) = tab_rect(item);
         let selected = tab == item;
@@ -765,13 +798,11 @@ fn draw_settings(
     p: &Palette,
 ) {
     draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW1, "POSITION", p);
-    draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW1, "THEME", p);
+    draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW1, "OFFSET", p);
     draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW2, "MEMORY", p);
     draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW2, "DISK", p);
     draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW3, "REFRESH", p);
     draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW3, "HOVER DELAY", p);
-    draw_group(renderer, SETTINGS_PAD, SETTINGS_ROW4, "OFFSET", p);
-    draw_group(renderer, SETTINGS_COL2, SETTINGS_ROW4, "ACCENT", p);
     draw_group(renderer, SETTINGS_PAD, SETTINGS_WIDGETS, "WIDGETS", p);
     draw_group(renderer, SETTINGS_PAD, SETTINGS_GPUS, "GPUS", p);
 
@@ -785,28 +816,6 @@ fn draw_settings(
         &[PanelAction::PositionLeft, PanelAction::PositionRight],
         &["Left", "Right"],
         position,
-        hover,
-        gpu_names.len(),
-        p,
-    );
-
-    let theme = match config.theme.as_str() {
-        "system" => Some(0),
-        "dark" => Some(1),
-        "light" => Some(2),
-        "glass" => Some(3),
-        _ => None,
-    };
-    draw_segments(
-        renderer,
-        &[
-            PanelAction::ThemeSystem,
-            PanelAction::ThemeDark,
-            PanelAction::ThemeLight,
-            PanelAction::ThemeGlass,
-        ],
-        &["System", "Dark", "Light", "Glass"],
-        theme,
         hover,
         gpu_names.len(),
         p,
@@ -908,8 +917,8 @@ fn draw_settings(
     }
     renderer.text_weight(
         &format!("{} DIP", config.offset),
-        SETTINGS_PAD + 34.0,
-        SETTINGS_ROW4 + 20.0,
+        SETTINGS_COL2 + 34.0,
+        SETTINGS_ROW1 + 20.0,
         SETTINGS_COL_W - 68.0,
         14.0,
         9.5,
@@ -917,26 +926,6 @@ fn draw_settings(
         DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_TEXT_ALIGNMENT_CENTER,
     );
-
-    for (index, hex) in ACCENTS.iter().enumerate() {
-        let Some((x, y, w, h)) = settings_rect(PanelAction::Accent(index), gpu_names.len()) else {
-            continue;
-        };
-        let selected = config.accent.eq_ignore_ascii_case(hex);
-        let hovered = hover == Some(PanelAction::Accent(index));
-        renderer.fill_round(x, y, w, h, 5.0, accent_color(hex));
-        if selected || hovered {
-            renderer.stroke_round(
-                x - 1.0,
-                y - 1.0,
-                w + 2.0,
-                h + 2.0,
-                6.0,
-                if selected { p.text } else { p.accent },
-                1.0,
-            );
-        }
-    }
 
     for (action, label, widget) in [
         (PanelAction::WidgetCpu, "CPU", "cpu"),
@@ -1010,6 +999,77 @@ fn draw_settings(
     );
 }
 
+fn draw_appearance(renderer: &Renderer, config: &Config, hover: Option<PanelAction>, p: &Palette) {
+    draw_group(renderer, SETTINGS_PAD, APPEARANCE_ROW1, "THEME", p);
+    draw_group(renderer, SETTINGS_PAD, APPEARANCE_ROW2, "STYLE", p);
+    draw_group(renderer, SETTINGS_COL2, APPEARANCE_ROW2, "ACCENT", p);
+
+    let theme = match config.theme.as_str() {
+        "system" => Some(0),
+        "dark" => Some(1),
+        "light" => Some(2),
+        "amoled" => Some(3),
+        "slate" => Some(4),
+        "sand" => Some(5),
+        _ => None,
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::ThemeSystem,
+            PanelAction::ThemeDark,
+            PanelAction::ThemeLight,
+            PanelAction::ThemeAmoled,
+            PanelAction::ThemeSlate,
+            PanelAction::ThemeSand,
+        ],
+        &["System", "Dark", "Light", "AMOLED", "Slate", "Sand"],
+        theme,
+        hover,
+        0,
+        p,
+    );
+
+    let style = match config.style.as_str() {
+        "blur" => Some(1),
+        "clear" => Some(2),
+        _ => Some(0),
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::StyleSolid,
+            PanelAction::StyleBlur,
+            PanelAction::StyleClear,
+        ],
+        &["Solid", "Blur", "Clear"],
+        style,
+        hover,
+        0,
+        p,
+    );
+
+    for (index, hex) in ACCENTS.iter().enumerate() {
+        let Some((x, y, w, h)) = settings_rect(PanelAction::Accent(index), 0) else {
+            continue;
+        };
+        let selected = config.accent.eq_ignore_ascii_case(hex);
+        let hovered = hover == Some(PanelAction::Accent(index));
+        renderer.fill_round(x, y, w, h, 5.0, accent_color(hex));
+        if selected || hovered {
+            renderer.stroke_round(
+                x - 1.0,
+                y - 1.0,
+                w + 2.0,
+                h + 2.0,
+                6.0,
+                if selected { p.text } else { p.accent },
+                1.0,
+            );
+        }
+    }
+}
+
 fn draw_group(renderer: &Renderer, x: f32, y: f32, label: &str, p: &Palette) {
     renderer.text_left_weight(
         label,
@@ -1060,14 +1120,7 @@ fn draw_chip(
     let (x, y, w, h) = rect;
     let fill = if selected || hovered { p.card } else { p.track };
     renderer.fill_round(x, y, w, h, 6.0, fill);
-    let outline = if selected {
-        with_alpha(p.accent, 0.55)
-    } else if hovered {
-        with_alpha(p.accent, 0.35)
-    } else {
-        p.border
-    };
-    renderer.stroke_round(x + 0.5, y + 0.5, w - 1.0, h - 1.0, 5.5, outline, 1.0);
+    renderer.stroke_round(x + 0.5, y + 0.5, w - 1.0, h - 1.0, 5.5, p.border, 1.0);
     renderer.text_weight(
         label,
         x,
@@ -1087,6 +1140,9 @@ fn draw_chip(
         },
         DWRITE_TEXT_ALIGNMENT_CENTER,
     );
+    if selected {
+        renderer.fill_round(x + 9.0, y + h - 3.0, w - 18.0, 2.0, 1.0, p.accent);
+    }
 }
 
 type Card = (f32, f32, f32, f32);
@@ -1275,42 +1331,49 @@ fn draw_core_bars(renderer: &Renderer, card: Card, cores: &[f32], p: &Palette) {
     }
 }
 
-fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
+fn palette(light: bool, theme: &str, style: &str, accent_hex: &str) -> Palette {
     let accent = accent_color(accent_hex);
-    if glass {
-        if light {
-            Palette {
-                bg: rgb(248, 248, 252, 0.62),
-                card: rgb(255, 255, 255, 0.30),
-                border: rgb(0, 0, 0, 0.075),
-                track: rgb(0, 0, 0, 0.10),
-                muted: rgb(90, 90, 100, 1.0),
-                secondary: rgb(55, 55, 65, 1.0),
-                text: rgb(18, 18, 22, 1.0),
-                accent,
-                good: rgb(24, 140, 82, 1.0),
-                warn: rgb(182, 106, 14, 1.0),
-                bad: rgb(184, 40, 40, 1.0),
-                highlight: rgb(255, 255, 255, 0.70),
-            }
-        } else {
-            Palette {
-                bg: rgb(14, 14, 19, 0.62),
-                card: rgb(255, 255, 255, 0.075),
-                border: rgb(255, 255, 255, 0.05),
-                track: rgb(255, 255, 255, 0.10),
-                muted: rgb(155, 155, 165, 1.0),
-                secondary: rgb(198, 198, 208, 1.0),
-                text: rgb(250, 250, 254, 1.0),
-                accent,
-                good: rgb(76, 200, 126, 1.0),
-                warn: rgb(245, 166, 65, 1.0),
-                bad: rgb(245, 92, 92, 1.0),
-                highlight: rgb(255, 255, 255, 0.12),
-            }
-        }
-    } else if light {
-        Palette {
+    let mut p = match theme {
+        "amoled" => Palette {
+            bg: rgb(0, 0, 0, 0.99),
+            card: rgb(255, 255, 255, 0.055),
+            border: rgb(255, 255, 255, 0.06),
+            track: rgb(255, 255, 255, 0.08),
+            muted: rgb(150, 150, 158, 1.0),
+            secondary: rgb(195, 195, 202, 1.0),
+            text: rgb(255, 255, 255, 1.0),
+            accent,
+            warn: rgb(250, 170, 64, 1.0),
+            bad: rgb(250, 94, 94, 1.0),
+            highlight: rgb(255, 255, 255, 0.07),
+        },
+        "slate" => Palette {
+            bg: rgb(24, 28, 36, 0.985),
+            card: rgb(255, 255, 255, 0.045),
+            border: rgb(255, 255, 255, 0.05),
+            track: rgb(255, 255, 255, 0.075),
+            muted: rgb(138, 148, 162, 1.0),
+            secondary: rgb(184, 193, 207, 1.0),
+            text: rgb(240, 244, 250, 1.0),
+            accent,
+            warn: rgb(245, 166, 65, 1.0),
+            bad: rgb(245, 92, 92, 1.0),
+            highlight: rgb(255, 255, 255, 0.06),
+        },
+        "sand" => Palette {
+            bg: rgb(247, 242, 232, 0.98),
+            card: rgb(0, 0, 0, 0.035),
+            border: rgb(0, 0, 0, 0.055),
+            track: rgb(0, 0, 0, 0.07),
+            muted: rgb(116, 106, 94, 1.0),
+            secondary: rgb(82, 72, 60, 1.0),
+            text: rgb(30, 25, 20, 1.0),
+            accent,
+            warn: rgb(190, 110, 18, 1.0),
+            bad: rgb(190, 45, 45, 1.0),
+            highlight: rgb(255, 255, 255, 0.9),
+        },
+        _ if light => Palette {
             bg: rgb(250, 250, 252, 0.98),
             card: rgb(0, 0, 0, 0.035),
             border: rgb(0, 0, 0, 0.055),
@@ -1319,13 +1382,11 @@ fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
             secondary: rgb(70, 70, 80, 1.0),
             text: rgb(24, 24, 28, 1.0),
             accent,
-            good: rgb(28, 150, 88, 1.0),
             warn: rgb(196, 118, 20, 1.0),
             bad: rgb(196, 48, 48, 1.0),
             highlight: rgb(255, 255, 255, 0.9),
-        }
-    } else {
-        Palette {
+        },
+        _ => Palette {
             bg: rgb(19, 19, 23, 0.985),
             card: rgb(255, 255, 255, 0.04),
             border: rgb(255, 255, 255, 0.05),
@@ -1334,12 +1395,48 @@ fn palette(light: bool, glass: bool, accent_hex: &str) -> Palette {
             secondary: rgb(185, 185, 195, 1.0),
             text: rgb(244, 244, 248, 1.0),
             accent,
-            good: rgb(76, 200, 126, 1.0),
             warn: rgb(245, 166, 65, 1.0),
             bad: rgb(245, 92, 92, 1.0),
             highlight: rgb(255, 255, 255, 0.055),
+        },
+    };
+
+    match style {
+        "blur" => {
+            p.bg.a = 0.62;
+            if light {
+                p.card = rgb(255, 255, 255, 0.30);
+                p.border = rgb(0, 0, 0, 0.075);
+                p.track = rgb(0, 0, 0, 0.10);
+                p.highlight = rgb(255, 255, 255, 0.70);
+            } else {
+                p.card = rgb(255, 255, 255, 0.075);
+                p.border = rgb(255, 255, 255, 0.05);
+                p.track = rgb(255, 255, 255, 0.10);
+                p.highlight = rgb(255, 255, 255, 0.12);
+            }
         }
+        "clear" => {
+            p.bg.a = if light { 0.80 } else { 0.78 };
+            p.card = if light {
+                rgb(0, 0, 0, 0.10)
+            } else {
+                rgb(255, 255, 255, 0.09)
+            };
+            p.border = if light {
+                rgb(0, 0, 0, 0.08)
+            } else {
+                rgb(255, 255, 255, 0.08)
+            };
+            p.track = if light {
+                rgb(0, 0, 0, 0.09)
+            } else {
+                rgb(255, 255, 255, 0.10)
+            };
+        }
+        _ => {}
     }
+    p
 }
 
 fn temperature_color(temp: f32, p: &Palette) -> D2D1_COLOR_F {
@@ -1370,11 +1467,6 @@ fn load_fill_color(value: f32, p: &Palette) -> D2D1_COLOR_F {
     } else {
         p.accent
     }
-}
-
-fn with_alpha(mut color: D2D1_COLOR_F, alpha: f32) -> D2D1_COLOR_F {
-    color.a *= alpha.clamp(0.0, 1.0);
-    color
 }
 
 fn rgb(r: u8, g: u8, b: u8, a: f32) -> D2D1_COLOR_F {

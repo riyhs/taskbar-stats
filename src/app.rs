@@ -38,6 +38,7 @@ const TIMER_HIDE: usize = 4;
 const TIMER_ANIM: usize = 5;
 const PANEL_SHOW_MS: u64 = 140;
 const PANEL_HIDE_MS: u64 = 110;
+const TAB_SETTLE_MS: u32 = 650;
 
 const MUTEX_NAME: PCWSTR = w!("Local\\TaskbarStats.SingleInstance");
 const WM_MOUSELEAVE_MSG: u32 = 0x02A3;
@@ -103,11 +104,12 @@ pub fn run() -> Result<()> {
             panel_hover: None,
             hover_timer: false,
             hide_timer: false,
+            tab_settle: false,
             taskbar_created,
             light: false,
-            glass_bg: None,
-            glass_bg_w: 0,
-            glass_bg_h: 0,
+            backdrop: None,
+            backdrop_w: 0,
+            backdrop_h: 0,
             popup_alpha: 1.0,
             fade: None,
             fade_timer: false,
@@ -159,11 +161,12 @@ struct App {
     panel_hover: Option<ui::PanelAction>,
     hover_timer: bool,
     hide_timer: bool,
+    tab_settle: bool,
     taskbar_created: u32,
     light: bool,
-    glass_bg: Option<Vec<u8>>,
-    glass_bg_w: u32,
-    glass_bg_h: u32,
+    backdrop: Option<Vec<u8>>,
+    backdrop_w: u32,
+    backdrop_h: u32,
     popup_alpha: f32,
     fade: Option<Fade>,
     fade_timer: bool,
@@ -314,7 +317,15 @@ impl App {
                     }
                     TIMER_HIDE => {
                         self.hide_timer = false;
-                        if !self.pinned
+                        if self.tab_settle {
+                            self.tab_settle = false;
+                            if !self.pinned
+                                && !self.cursor_over(self.strip)
+                                && !self.cursor_over(self.popup)
+                            {
+                                self.hide_popup();
+                            }
+                        } else if !self.pinned
                             && !self.cursor_over(self.strip)
                             && !self.cursor_over(self.popup)
                         {
@@ -374,6 +385,7 @@ impl App {
                     self.popup_alpha = 1.0;
                     self.render_popup();
                 }
+                self.tab_settle = false;
                 self.track_leave(hwnd);
                 if self.hide_timer {
                     unsafe {
@@ -394,7 +406,7 @@ impl App {
                     self.panel_hover = None;
                     self.render_popup();
                 }
-                if !self.pinned {
+                if !self.pinned && !self.tab_settle {
                     self.start_hide_timer();
                 }
                 LRESULT(0)
@@ -408,8 +420,6 @@ impl App {
                     self.handle_panel_action(action);
                 } else if self.pinned {
                     self.hide_popup();
-                } else {
-                    self.pinned = true;
                 }
                 LRESULT(0)
             }
@@ -467,9 +477,9 @@ impl App {
         }
     }
 
-    fn capture_glass_background(&mut self, x: i32, y: i32, width: i32, height: i32, dpi: u32) {
-        self.glass_bg = None;
-        if self.config.theme != "glass" || width <= 0 || height <= 0 {
+    fn capture_backdrop(&mut self, x: i32, y: i32, width: i32, height: i32, dpi: u32) {
+        self.backdrop = None;
+        if self.config.style != "blur" || width <= 0 || height <= 0 {
             return;
         }
         let margin = (ui::PANEL_MARGIN * dpi as f32 / 96.0).round() as i32;
@@ -497,9 +507,9 @@ impl App {
             height as usize,
             corner_radius,
         );
-        self.glass_bg = Some(frame);
-        self.glass_bg_w = content_width as u32;
-        self.glass_bg_h = height as u32;
+        self.backdrop = Some(frame);
+        self.backdrop_w = content_width as u32;
+        self.backdrop_h = height as u32;
     }
 
     fn sample_and_render(&mut self) {
@@ -557,9 +567,9 @@ impl App {
             self.panel_tab,
             self.panel_hover,
             &gpu_names,
-            self.glass_bg.as_deref(),
-            self.glass_bg_w,
-            self.glass_bg_h,
+            self.backdrop.as_deref(),
+            self.backdrop_w,
+            self.backdrop_h,
         ) {
             logging::write(&format!("popup render failed: {error}"));
         }
@@ -596,6 +606,7 @@ impl App {
     fn show_popup(&mut self, pin: bool) {
         let Some(tb) = self.taskbar else { return };
         let was_visible = self.popup_visible;
+        self.tab_settle = false;
         self.cancel_fade();
         if !was_visible {
             self.popup_alpha = 0.0;
@@ -640,12 +651,12 @@ impl App {
         } else {
             taskbar_rect.bottom + gap
         };
-        if self.config.theme == "glass" && self.popup_visible {
+        if self.config.style == "blur" && self.popup_visible {
             unsafe {
                 let _ = ShowWindow(self.popup, SW_HIDE);
             }
         }
-        self.capture_glass_background(x, y, width, height, dpi);
+        self.capture_backdrop(x, y, width, height, dpi);
         unsafe {
             let _ = SetWindowPos(
                 self.popup,
@@ -672,6 +683,13 @@ impl App {
         if self.fade.as_ref().is_some_and(|fade| fade.hiding) {
             return;
         }
+        if self.hide_timer {
+            unsafe {
+                let _ = KillTimer(self.strip, TIMER_HIDE);
+            }
+            self.hide_timer = false;
+        }
+        self.tab_settle = false;
         self.pinned = false;
         self.start_fade(0.0, PANEL_HIDE_MS, true);
     }
@@ -686,6 +704,7 @@ impl App {
         self.fade = None;
         self.popup_visible = false;
         self.pinned = false;
+        self.tab_settle = false;
         self.panel_tab = ui::PanelTab::Overview;
         self.panel_hover = None;
         self.popup_alpha = 1.0;
@@ -917,25 +936,40 @@ impl App {
 
     fn refresh_theme(&mut self) {
         self.light = match self.config.theme.as_str() {
-            "light" => true,
-            "dark" => false,
+            "light" | "sand" => true,
+            "dark" | "amoled" | "slate" => false,
             _ => system_uses_light(),
         };
-        if self.config.theme != "glass" {
-            self.glass_bg = None;
+        if self.config.style != "blur" {
+            self.backdrop = None;
+        }
+    }
+
+    fn switch_tab(&mut self, tab: ui::PanelTab) {
+        let changed = self.panel_tab != tab;
+        self.panel_tab = tab;
+        self.show_popup(self.pinned);
+        if changed {
+            self.tab_settle = true;
+            unsafe {
+                SetTimer(self.strip, TIMER_HIDE, TAB_SETTLE_MS, None);
+            }
+            self.hide_timer = true;
         }
     }
 
     fn handle_panel_action(&mut self, action: ui::PanelAction) {
         match action {
             ui::PanelAction::TabOverview => {
-                self.panel_tab = ui::PanelTab::Overview;
-                self.show_popup(self.pinned);
+                self.switch_tab(ui::PanelTab::Overview);
                 return;
             }
             ui::PanelAction::TabSettings => {
-                self.panel_tab = ui::PanelTab::Settings;
-                self.show_popup(self.pinned);
+                self.switch_tab(ui::PanelTab::Settings);
+                return;
+            }
+            ui::PanelAction::TabAppearance => {
+                self.switch_tab(ui::PanelTab::Appearance);
                 return;
             }
             _ => {}
@@ -948,7 +982,12 @@ impl App {
             ui::PanelAction::ThemeSystem => self.config.theme = "system".into(),
             ui::PanelAction::ThemeDark => self.config.theme = "dark".into(),
             ui::PanelAction::ThemeLight => self.config.theme = "light".into(),
-            ui::PanelAction::ThemeGlass => self.config.theme = "glass".into(),
+            ui::PanelAction::ThemeAmoled => self.config.theme = "amoled".into(),
+            ui::PanelAction::ThemeSlate => self.config.theme = "slate".into(),
+            ui::PanelAction::ThemeSand => self.config.theme = "sand".into(),
+            ui::PanelAction::StyleSolid => self.config.style = "solid".into(),
+            ui::PanelAction::StyleBlur => self.config.style = "blur".into(),
+            ui::PanelAction::StyleClear => self.config.style = "clear".into(),
             ui::PanelAction::MemoryGb => self.config.mem_mode = "gb".into(),
             ui::PanelAction::MemoryPercent => self.config.mem_mode = "percent".into(),
             ui::PanelAction::DiskGb => self.config.disk_mode = "gb".into(),
@@ -999,7 +1038,7 @@ impl App {
             || before.offset != self.config.offset
             || before.widgets != self.config.widgets
             || before.gpu_visible != self.config.gpu_visible;
-        let theme_changed = before.theme != self.config.theme;
+        let theme_changed = before.theme != self.config.theme || before.style != self.config.style;
         self.refresh_snapshot();
         if layout_changed {
             self.position_strip();

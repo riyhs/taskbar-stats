@@ -85,7 +85,8 @@ contributes one cell per physical adapter.
 Popup placement:
 
 - Content width 400 DIP plus 6 DIP transparent side margins; height 272 DIP
-  for Overview and 392 DIP for Settings, scaled by taskbar DPI.
+  for Overview, 344 DIP for Settings, and 176 DIP for Appearance, scaled by
+  taskbar DPI.
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
   below a top taskbar.
@@ -106,11 +107,12 @@ Each of the strip and popup owns a `Renderer`:
 5. Clear to transparent, draw rounded rectangles, text, bars, and dots.
 6. `EndDraw`, then present with `UpdateLayeredWindow`.
 
-For the Glass theme, `show_popup` briefly hides the popup, captures the desktop
+For the Blur style, `show_popup` briefly hides the popup, captures the desktop
 region behind its content with `BitBlt`, applies a separable box blur and a
 rounded-corner alpha mask, and stores the result. `draw_panel` draws that
-captured backdrop beneath the translucent glass tint and cards. The blur is
-sampled when the panel is shown or resized, not on every metric refresh.
+captured backdrop beneath the translucent tint and cards. The blur is sampled
+when the panel is shown, resized, or switched to Blur, not on every metric
+refresh. Solid and Clear never capture a backdrop.
 
 The UI works in DIPs. `app.rs` converts pixel dimensions back to DIPs before
 calling `ui::draw_strip`/`ui::draw_panel`, and converts popup mouse coordinates
@@ -121,11 +123,12 @@ UI composition lives in `src/ui.rs`:
 
 - `strip_width_dip` and `strip_cell_count` calculate the strip width.
 - `draw_strip` builds cells and draws labels, temperatures, values, and bars.
-- `draw_panel` draws the tabbed header and dispatches to the overview cards or
-  the settings form.
-- `draw_settings`, `action_at`, and `settings_rect` share one fixed control
-  geometry for drawing and hit testing.
-- `palette` supplies system/dark/light/glass tokens; `palette` and threshold
+- `draw_panel` draws the tabbed header and dispatches to the overview cards,
+  the settings form, or the appearance form.
+- `draw_settings`, `draw_appearance`, `action_at`, and `settings_rect` share
+  one fixed control geometry for drawing and hit testing.
+- `palette` resolves a color theme (system/dark/light/amoled/slate/sand) and
+  then applies a surface style (solid/blur/clear); `palette` and threshold
   helpers are the only places that decide semantic colors.
 - `src/render.rs` provides weighted text, rounded fills/strokes, circles, and
   layered-window presentation.
@@ -157,16 +160,21 @@ Popup input:
 - Mouse movement cancels a pending hide and updates the hovered control.
 - Mouse leave clears hover and starts a hide timer unless pinned.
 - Left click resolves `PanelAction` through `ui::action_at`.
-  - Tab clicks switch the panel without pinning a hover-opened popup.
-  - Settings controls mutate the config, save it, and apply immediately.
-  - Empty panel space pins an unpinned panel or closes a pinned one.
+  - Tab clicks switch the panel without pinning a hover-opened popup. A short
+    settle timer keeps a shrinking panel open long enough for the pointer to
+    enter the new tab layout.
+  - Settings and Appearance controls mutate the config, save it, and apply
+    immediately.
+  - Empty panel space leaves an unpinned panel unpinned (so mouse leave still
+    hides it) and closes a pinned panel.
 - Right click closes.
 - The popup never activates.
 
-## Settings flow
+## Settings and Appearance flow
 
-The Settings tab is a two-column control surface rendered inside the same
-popup. The panel height changes from 272 to 392 DIP when it opens.
+Settings and Appearance are control surfaces rendered inside the same popup.
+The panel height is 272 DIP for Overview, 344 DIP for Settings, and 176 DIP for
+Appearance.
 
 1. A click arrives at the popup in physical pixels.
 2. `App::panel_point` converts the point to DIPs.
@@ -178,13 +186,15 @@ popup. The panel height changes from 272 to 392 DIP when it opens.
 7. Theme refresh, strip placement, update timer, strip redraw, and popup redraw
    run as needed. Layout-affecting changes re-center the popup.
 
-Settings include position, offset, theme, accent, memory/disk display mode,
-refresh interval, hover delay, visible widgets, per-GPU visibility, reset
-defaults. The config file is an implementation detail; manual editing
-is not required.
+Settings include position, offset, memory/disk display mode, refresh interval,
+hover delay, visible widgets, per-GPU visibility, and reset. Appearance includes
+theme, surface style, and accent. The config file is an implementation detail;
+manual editing is not required.
 
 `TaskbarCreated` triggers reattachment after Explorer restarts. Display, DPI,
-theme, and settings changes trigger re-placement and redraw.
+theme, and settings changes trigger re-placement and redraw. Switching tabs
+  uses the same geometry and reruns `show_popup`, so height and blur capture stay
+  correct.
 
 ## Sampling
 
@@ -234,6 +244,7 @@ position = "right"
 offset = 6
 widgets = ["cpu", "gpu", "mem", "disk"]
 theme = "system"
+style = "solid"
 accent = "#5B9CFF"
 hover_delay_ms = 220
 update_ms = 1000
@@ -245,8 +256,9 @@ gpu_visible = []
 Validation:
 
 - `position`: `left` or `right`.
-- `theme`: `system`, `dark`, `light`, or `glass`.
-- `offset`: −400 to 400 DIP.
+- `theme`: `system`, `dark`, `light`, `amoled`, `slate`, or `sand`.
+- `style`: `solid`, `blur`, or `clear`.
+- `offset`: −4096 to 4096 DIP.
 - `hover_delay_ms`: 0–2000 ms.
 - `update_ms`: 250–5000 ms.
 - `mem_mode`, `disk_mode`: `gb` or `percent`.
@@ -256,10 +268,13 @@ Validation:
 - `accent`: six hex digits, normalized to uppercase.
 - The legacy default `["cpu", "temp", "mem", "disk"]` migrates to the GPU-aware
   default.
+- The legacy `theme = "glass"` migrates to `theme = "system"` and
+  `style = "blur"`.
 
 `Reload config` re-reads the file, re-validates it, repositions the strip if the
 widget/GPU count changes, and redraws. The normal configuration path is the
-Settings tab, which writes the file automatically after every change.
+Settings and Appearance tabs, which write the file automatically after every
+change.
 
 ## Logging
 
@@ -306,6 +321,7 @@ the panic message before the default hook runs.
   config validation list; update `DESIGN.md`.
 - Add a sensor by extending `Snapshot`, populating it in `Sampler::sample`, and
   rendering it through existing card/row primitives.
-- Add a new theme by extending `Palette` and the theme validation list.
+- Add a new theme or surface style by extending `Palette`, the Settings
+  actions, and the validation lists.
 - Add placement modes in `taskbar::place` while preserving the child-window
   model and work-area clamping.

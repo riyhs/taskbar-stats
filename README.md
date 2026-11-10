@@ -48,8 +48,9 @@ a shortcut in the Startup apps list. It does not install a service or a driver.
 ## Configuration
 
 Settings are managed from the hover panel. Hover the strip, open the
-**Settings** tab, and change values in place. Every change applies immediately
-and is saved automatically; no manual file editing is required.
+**Settings** or **Appearance** tab, and change values in place. Every change
+applies immediately and is saved automatically; no manual file editing is
+required.
 
 The settings are persisted in:
 
@@ -57,16 +58,17 @@ The settings are persisted in:
 %APPDATA%\TaskbarStats\config.toml
 ```
 
-The file is created on first launch and is managed by the app. The settings tab
-includes position, offset, theme, accent color, memory/disk display mode,
-refresh interval, hover delay, visible widgets, per-GPU visibility, and a reset
-action.
+The file is created on first launch and is managed by the app. The Settings tab
+contains position, offset, memory/disk display mode, refresh interval, hover
+delay, visible widgets, per-GPU visibility, and reset. The Appearance tab
+contains theme, surface style, and accent color.
 
 ```toml
 position = "right"
 offset = 6
 widgets = ["cpu", "gpu", "mem", "disk"]
 theme = "system"
+style = "solid"
 accent = "#5B9CFF"
 hover_delay_ms = 220
 update_ms = 1000
@@ -93,24 +95,33 @@ gpu_visible = []
     configs
 - `mem_mode` and `disk_mode`: `"gb"` (default) or `"percent"`. The main strip
   number follows this setting; the bar still represents the percentage.
-- `theme`: `"system"`, `"dark"`, `"light"`, or `"glass"`. Glass adds
-  translucent surfaces over a blurred desktop backdrop.
+- `theme`: `"system"`, `"dark"`, `"light"`, `"amoled"`, `"slate"`, or
+  `"sand"`. `system` follows the Windows light/dark setting. `amoled` is a
+  pure-black dark theme; `slate` is a cool blue-gray dark theme; `sand` is a
+  warm light theme.
+- `style`: `"solid"`, `"blur"`, or `"clear"`. `blur` places a captured,
+  blurred desktop backdrop behind translucent surfaces. `clear` uses
+  translucent surfaces without a backdrop. Theme and style are independent, so
+  `light + blur`, `dark + blur`, and `dark + solid` all work. Older configs
+  with `theme = "glass"` migrate to `theme = "system"` and `style = "blur"`.
 - `gpu_visible`: optional list of adapter names to show. An empty list shows
   every detected adapter. The Settings tab writes this list automatically when
   individual GPU chips are toggled.
-- `accent`: six-digit hex color used for progress fills and the live indicator.
+- `accent`: six-digit hex color used for progress fills.
 - `hover_delay_ms`: delay before the detail panel appears.
 - `update_ms`: sampling interval, clamped to 250–5000 ms.
 
 ## Behavior
 
 - Hover the strip to show the detail panel.
-- Use the **Overview** and **Settings** tabs in the panel.
-- Settings apply live to the strip and panel and save automatically. When the
-  panel was opened by hover, it closes after the pointer leaves it, including
-  on the Settings tab.
-- Click the strip to pin or close the panel. Middle-click opens Settings
-  directly.
+- Use the **Overview**, **Settings**, and **Appearance** tabs in the panel.
+- Settings and appearance changes apply live to the strip and panel and save
+  automatically. When the panel was opened by hover, it closes after the
+  pointer leaves it, including on the Settings and Appearance tabs.
+- Click the strip to toggle the panel. Middle-click opens Settings directly.
+- Clicking non-button panel space does not pin a hover-opened panel, so it
+  still closes when the pointer leaves. On a pinned panel, the same click
+  closes it.
 - Drag the strip horizontally to reposition it inside the taskbar.
 - Right-click the strip for **Settings**, **Reload config**, and **Exit**.
 - The strip reattaches after Explorer restarts.

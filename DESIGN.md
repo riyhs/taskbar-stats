@@ -65,7 +65,8 @@ secondary text under normal conditions and warning/bad when hot.
 | Panel width | 400 DIP |
 | Side margin | 6 DIP left and right |
 | Overview height | 272 DIP |
-| Settings height | 392 DIP |
+| Settings height | 344 DIP |
+| Appearance height | 176 DIP |
 | Outer radius | 18 px |
 | Border | 1 px |
 | Header height | 44 px |
@@ -78,7 +79,7 @@ secondary text under normal conditions and warning/bad when hot.
 Layout:
 
 ```text
-Overview   Settings             ● LIVE   UP 7h 38m
+Overview   Settings   Appearance              UP 7h 38m
 
 CPU                         MEMORY
 53%                         10.9G
@@ -111,7 +112,6 @@ Use `Segoe UI` through DirectWrite.
 | Strip temperature | 9.0 | 400 |
 | Strip value | 17.0 | 600 |
 | Panel tab | 9.5 | 400/600 selected |
-| Panel live state | 8.5 | 400 |
 | Settings group label | 9.0 | 400 |
 | Settings control | 9.0 | 400/600 selected |
 | Settings footer | 8.5 | 400 |
@@ -141,52 +141,41 @@ Rules:
 Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 `accent` is the user-configurable `#RRGGBB` value; it defaults to `#5B9CFF`.
 
-### Dark
+### Themes
 
-| Role | Value |
-| --- | --- |
-| Background | `rgb(19, 19, 23)` at 98.5% |
-| Card | white 4% |
-| Border | white 8.5% |
-| Track | white 7% |
-| Muted label | `rgb(145, 145, 155)` |
-| Secondary | `rgb(185, 185, 195)` |
-| Primary text | `rgb(244, 244, 248)` |
-| Good / live | `rgb(76, 200, 126)` |
-| Warning | `rgb(245, 166, 65)` |
-| Bad | `rgb(245, 92, 92)` |
-| Top highlight | white 5.5% |
+`System` resolves to the Windows light or dark appearance. All themes share the
+same typography, semantic thresholds, and sizing.
 
-### Light
+| Theme | Background | Primary | Secondary | Muted |
+| --- | --- | --- | --- | --- |
+| Dark | `rgb(19, 19, 23)` at 98.5% | `rgb(244, 244, 248)` | `rgb(185, 185, 195)` | `rgb(145, 145, 155)` |
+| Light | `rgb(250, 250, 252)` at 98% | `rgb(24, 24, 28)` | `rgb(70, 70, 80)` | `rgb(105, 105, 115)` |
+| AMOLED | `rgb(0, 0, 0)` at 99% | `rgb(255, 255, 255)` | `rgb(195, 195, 202)` | `rgb(150, 150, 158)` |
+| Slate | `rgb(24, 28, 36)` at 98.5% | `rgb(240, 244, 250)` | `rgb(184, 193, 207)` | `rgb(138, 148, 162)` |
+| Sand | `rgb(247, 242, 232)` at 98% | `rgb(30, 25, 20)` | `rgb(82, 72, 60)` | `rgb(116, 106, 94)` |
 
-| Role | Value |
-| --- | --- |
-| Background | `rgb(250, 250, 252)` at 98% |
-| Card | black 3.5% |
-| Border | black 9% |
-| Track | black 7% |
-| Muted label | `rgb(105, 105, 115)` |
-| Secondary | `rgb(70, 70, 80)` |
-| Primary text | `rgb(24, 24, 28)` |
-| Good / live | `rgb(28, 150, 88)` |
-| Warning | `rgb(196, 118, 20)` |
-| Bad | `rgb(196, 48, 48)` |
-| Top highlight | white 90% |
+Base card, border, and track tokens:
 
-### Glass
+| Theme | Card | Border | Track | Highlight |
+| --- | --- | --- | --- | --- |
+| Dark | white 4% | white 5% | white 7% | white 5.5% |
+| Light | black 3.5% | black 5.5% | black 7% | white 90% |
+| AMOLED | white 5.5% | white 6% | white 8% | white 7% |
+| Slate | white 4.5% | white 5% | white 7.5% | white 6% |
+| Sand | black 3.5% | black 5.5% | black 7% | white 90% |
 
-Glass follows the system light/dark appearance and uses a captured, blurred
-desktop backdrop behind the panel and translucent taskbar surfaces.
+### Surface styles
 
-| Role | Dark glass | Light glass |
-| --- | --- | --- |
-| Background tint | `rgb(14, 14, 19)` at 62% | `rgb(248, 248, 252)` at 62% |
-| Card | white 7.5% | white 30% |
-| Border | white 15% | black 13% |
-| Track | white 10% | black 10% |
-| Muted label | `rgb(155, 155, 165)` | `rgb(90, 90, 100)` |
-| Secondary | `rgb(198, 198, 208)` | `rgb(55, 55, 65)` |
-| Primary text | `rgb(250, 250, 254)` | `rgb(18, 18, 22)` |
+Style is independent of theme, so every theme can be Solid, Blur, or Clear.
+
+| Style | Background | Surfaces | Behavior |
+| --- | --- | --- | --- |
+| Solid | theme background at 98–99% | theme card, border, and track | no desktop capture |
+| Blur | theme background at 62% | light: card white 30%, border black 7.5%, track black 10%; dark: card white 7.5%, border white 5%, track white 10% | captures and blurs the desktop behind the panel |
+| Clear | theme background at 78–80% | light: card black 10%, border black 8%, track black 9%; dark: card white 9%, border white 8%, track white 10% | translucent, no blur |
+
+Blur uses the theme's own background tint, so AMOLED + Blur stays black,
+Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 
 ### Semantic thresholds
 
@@ -201,7 +190,6 @@ desktop backdrop behind the panel and translucent taskbar surfaces.
 - Temperatures use secondary text until the warning threshold.
 - A high disk fill turns both the value and the bar warning-colored.
 - Missing sensors use muted text.
-- The live dot uses the good color; `LIVE` is the only green text.
 
 ## Components
 
@@ -219,11 +207,10 @@ desktop backdrop behind the panel and translucent taskbar surfaces.
 
 ### Panel header
 
-- `Overview` and `Settings` tabs on the leading edge.
+- `Overview`, `Settings`, and `Appearance` tabs on the leading edge.
 - The selected tab uses primary text, a subtle card fill, and a 2 px accent
   underline. Hovering an unselected tab applies the same card fill and primary
   text.
-- `LIVE` with a 2 px good-colored dot on the trailing edge.
 - `UP <duration>` right-aligned, secondary.
 - No divider; the 44 px header band supplies separation.
 
@@ -242,30 +229,45 @@ desktop backdrop behind the panel and translucent taskbar surfaces.
 ### Settings tab
 
 The settings surface is a two-column form with a 10 px gap between columns. The
-panel grows to 392 px while Settings is active.
+panel is 344 px while Settings is active.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
-| 1 | Position: Left / Right | Theme: System / Dark / Light / Glass |
+| 1 | Position: Left / Right | Offset: − / value / + |
 | 2 | Memory: GB / % | Disk: GB / % |
 | 3 | Refresh: 0.5s / 1s / 2s | Hover delay: 0 / 150 / 220 / 400 ms |
-| 4 | Offset: − / value / + | Accent: six swatches |
-| 5 | Widgets: CPU / MEM / DISK | |
-| 6 | GPUs: one chip per detected adapter | |
+| 4 | Widgets: CPU / MEM / DISK | |
+| 5 | GPUs: one chip per detected adapter | |
 | Footer | Changes save automatically (note) | Reset defaults |
 
 - Group labels are muted 9 px uppercase.
 - Controls are 24 px high with a 6 px radius.
-- Unselected controls use the track fill, border, and secondary text.
-- Selected controls use a card fill, accent border, and primary semibold text.
-- Hovered controls use the card fill, accent border, and primary text.
+- Unselected controls use the track fill, soft card border, and secondary text.
+- Selected controls use a card fill, primary semibold text, and a 2 px accent
+  underline; hovered controls use the card fill and primary text.
 - Offset changes by 2 DIP per press and is clamped to −4096…4096.
-- Accent swatches are 20 px; the selected swatch gets a 1 px primary ring,
-  hovered swatches get an accent ring.
 - Every change applies immediately and writes the config file.
 - Each GPU chip toggles that adapter independently; deselecting every adapter
   removes the GPU widget, and selecting one restores it.
 - `Reset defaults` restores the default config and updates the UI immediately.
+
+### Appearance tab
+
+The appearance surface keeps visual choices separate from behavior settings. The
+panel is 176 px while Appearance is active.
+
+| Row | Left column | Right column |
+| --- | --- | --- |
+| 1 | Theme: System / Dark / Light / AMOLED / Slate / Sand (full width) | |
+| 2 | Style: Solid / Blur / Clear | Accent: six swatches |
+
+- Theme controls the color palette; style controls Solid, Blur, or Clear
+  surfaces.
+- Theme and style are independent selections.
+- Accent swatches update progress fills immediately.
+- Accent swatches are 20 px; the selected swatch gets a 1 px primary ring,
+  hovered swatches get an accent ring.
+- Every change applies immediately and writes the config file.
 
 ### Missing data
 
@@ -285,9 +287,15 @@ panel grows to 392 px while Settings is active.
 - Middle-clicking the strip opens Settings pinned.
 - Dragging the strip horizontally repositions it; on release the position and
   offset are saved and snapped into the nearest free taskbar gap.
-- Opening the Settings tab does not pin a hover-opened panel.
-- Leaving an unpinned panel, including Settings, starts the hide timer.
-- Settings controls apply changes immediately and save automatically.
+- Opening the Settings or Appearance tab does not pin a hover-opened panel.
+- Switching tabs keeps the panel open for a short 650 ms settle window while it
+  resizes, so the pointer can move into the new layout.
+- Clicking non-button panel space does not pin a hover-opened panel; it keeps
+  the panel unpinned so leaving still starts the hide timer. On a pinned panel,
+  the same click closes it.
+- Leaving an unpinned panel, including Settings or Appearance, starts the hide
+  timer.
+- Settings and Appearance controls apply changes immediately and save automatically.
 - Right-clicking the strip opens `Settings`, `Reload config`, and `Exit`.
 - The panel never takes focus (`WS_EX_NOACTIVATE`).
 - The panel fades in over 140 ms and fades out over 110 ms, with an ease-out
@@ -314,15 +322,18 @@ panel grows to 392 px while Settings is active.
 1. Strip at 100%: labels, temperatures, values, and bars align; no cell text
    touches its neighbor.
 2. Five-cell layout at 420 px; strip remains clear of the notification area.
-3. Overview panel at 400 × 272 and Settings panel at 400 × 392; all content
-   fits without clipping, with 6 DIP side margins.
-4. System, Dark, Light, and Glass themes retain hierarchy and contrast.
+3. Overview panel at 400 × 272, Settings at 400 × 344, and Appearance at
+   400 × 176; all content fits without clipping, with 6 DIP side margins.
+4. System, Dark, Light, AMOLED, Slate, and Sand themes retain hierarchy and
+   contrast in Solid, Blur, and Clear styles.
 5. `mem_mode` and `disk_mode` in `gb` and `percent` do not overflow cells.
 6. Two-GPU layout shows both adapters as separate cells/chips, mini bars, and
    the summary footer.
 7. Missing temperatures render as `--°`/`temp --`, never as fabricated values.
-8. Right-click menu, click-to-pin, and leave-to-hide still work after layout
+8. Right-click menu, click-to-toggle, and leave-to-hide still work after layout
    changes.
-9. Settings controls apply live, save automatically, and survive close/reopen.
-10. Position, offset, widget visibility, per-GPU visibility, theme, accent,
-    refresh, hover delay, memory mode, disk mode, reset, and GPU toggles work.
+9. Settings and Appearance controls apply live, save automatically, and
+   survive close/reopen.
+10. Position, offset, widget visibility, per-GPU visibility, theme, style,
+    accent, refresh, hover delay, memory mode, disk mode, reset, and GPU
+    toggles work.

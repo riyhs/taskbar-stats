@@ -7,6 +7,8 @@ pub struct Config {
     pub offset: i32,
     pub widgets: Vec<String>,
     pub theme: String,
+    #[serde(default = "default_style")]
+    pub style: String,
     pub accent: String,
     pub hover_delay_ms: u32,
     pub update_ms: u32,
@@ -22,6 +24,10 @@ fn default_gb() -> String {
     "gb".into()
 }
 
+fn default_style() -> String {
+    "solid".into()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -29,6 +35,7 @@ impl Default for Config {
             offset: 6,
             widgets: vec!["cpu".into(), "gpu".into(), "mem".into(), "disk".into()],
             theme: "system".into(),
+            style: default_style(),
             accent: "#5B9CFF".into(),
             hover_delay_ms: 220,
             update_ms: 1000,
@@ -57,10 +64,19 @@ impl Config {
             .ok()
             .and_then(|s| toml::from_str::<Self>(&s).ok())
             .unwrap_or_default();
+        let mut migrated = false;
+        if cfg.theme == "glass" {
+            cfg.theme = "system".into();
+            cfg.style = "blur".into();
+            migrated = true;
+        }
         if cfg.widgets == ["cpu", "temp", "mem", "disk"] {
             cfg.widgets = vec!["cpu".into(), "gpu".into(), "mem".into(), "disk".into()];
         }
         cfg.validate();
+        if migrated {
+            let _ = cfg.save(&path);
+        }
         (cfg, path)
     }
 
@@ -83,8 +99,14 @@ impl Config {
         if self.position != "left" && self.position != "right" {
             self.position = "right".into();
         }
-        if !matches!(self.theme.as_str(), "system" | "dark" | "light" | "glass") {
+        if !matches!(
+            self.theme.as_str(),
+            "system" | "dark" | "light" | "amoled" | "slate" | "sand"
+        ) {
             self.theme = "system".into();
+        }
+        if !matches!(self.style.as_str(), "solid" | "blur" | "clear") {
+            self.style = "solid".into();
         }
         self.offset = self.offset.clamp(-4096, 4096);
         self.hover_delay_ms = self.hover_delay_ms.clamp(0, 2000);
