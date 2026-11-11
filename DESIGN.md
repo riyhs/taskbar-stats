@@ -33,9 +33,9 @@ At 96 DPI:
 | Cell width | 72 px |
 | Cell gap | 10 px |
 | Track bar | 2.5 px high, full cell width |
-| Label baseline area | 9 px text at y ≈ 7.7 px |
-| Primary value | 17 px semibold at y ≈ 18.2 px |
-| Temperature | 9 px normal, same row as label |
+| Label baseline area | 9 px base text at y ≈ 7 px |
+| Primary value | 17 px base semibold at y ≈ 17 px |
+| Temperature | 9 px base normal, same row as label |
 | Strip height | Taskbar height (typically 48 px) |
 
 Strip width is calculated from the number of cells:
@@ -57,7 +57,9 @@ CPU              --°   <- label left; temperature right, 9 px normal
 
 The label is left-aligned. Temperature, upload rate, or other secondary detail
 is right-aligned in the cell so large text sizes cannot collide. The detail is
-secondary text under normal conditions and warning/bad when hot.
+secondary text under normal conditions and warning/bad when hot. The strip text
+sizes derive from the taskbar height, and the strip caps the text-size setting
+at Normal so the fixed taskbar row always fits; Compact still shrinks it.
 
 ### Hover panel
 
@@ -65,20 +67,33 @@ secondary text under normal conditions and warning/bad when hot.
 | --- | --- |
 | Panel width | 400 DIP |
 | Side margin | 6 DIP left and right |
-| Overview height | 318 DIP |
-| Pomodoro height | 348 DIP |
-| Todo height | 280 DIP |
-| Settings height | 348 DIP |
-| Appearance height | 204 DIP |
+| Overview height | 322 DIP at Normal (313 Compact, 336 Large) |
+| Pomodoro height | 352 DIP at Normal (332 Compact, 382 Large) |
+| Todo height | 290 DIP at Normal (284 Compact, 299 Large) |
+| Settings height | 352 DIP at Normal (332 Compact, 382 Large) |
+| Appearance height | 208 DIP at Normal (198 Compact, 223 Large) |
 | Outer radius | 18 px |
 | Border | 1 px |
-| Bottom tab bar height | 36 px |
+| Bottom tab bar height | 38 px (30 px tabs plus 8 px bottom padding) |
 | Padding | 16 px on every page edge |
-| Row step | 48 px (label, then 24 px controls 16 px below it) |
+| Row step | 48 px at Normal (45 Compact, 53 Large) |
 | Card gap | 10 px |
-| Card size | 179 × 101 px |
+| Card size | 179 × 101 px at Normal (96.5 Compact, 107.75 Large) |
 | Card radius | 12 px |
 | Card padding | 14 px |
+
+Page height and row geometry scale with the text-size setting through
+`Layout`:
+
+```text
+t          = font_scale - 1.0
+chip_top   = 18 + 13t      chip_h    = 24 + 20t
+row_step   = chip_top + chip_h + 6
+card_h     = 101 + 45t     todo_step = 34 + 8t
+todo_card  = 104 + 28t
+```
+
+The strip stays at its base size; the panel honors the full setting.
 
 Layout:
 
@@ -93,7 +108,7 @@ DISK                        GRAPHICS
 47G free · 49°C             MX350        0%   52°
 [====================]      2 adapters · max 52°
 
-NETWORK                     ↓ 12.4M   ↑ 1.2M
+NETWORK                              ↓ 12.4M   ↑ 1.2M
 
 Overview  Pomodoro  Todo  Settings  Appearance   v0.1.0
 ```
@@ -112,25 +127,29 @@ edge gap; collision avoidance may place the strip farther inward.
 
 Use `Segoe UI` through DirectWrite.
 
-| Role | Size | Weight |
+| Role | Size at Normal | Weight |
 | --- | --- | --- |
-| Strip label | 9.0 | 400 |
-| Strip detail (temp/network) | 9.0 | 400 |
-| Strip value | 17.0 | 600 |
-| Panel tab | 9.5 | 400/600 selected |
+| Strip label | 11.0 | 400 |
+| Strip detail (temp/network) | 11.0 | 400 |
+| Strip value | 19.0 | 600 |
+| Panel tab | 11.5 | 400/600 selected |
 | Pomodoro time | 42.0 | 600 |
-| Todo text | 9.5 | 400 |
-| Settings group label | 9.0 | 400 |
-| Settings control | 9.0 | 400/600 selected |
-| Settings footer | 8.5 | 400 |
-| Panel version | 8.5 | 400 |
-| Card label | 9.0 | 400 |
-| Card value | 24.0 | 600 |
-| Card secondary | 9.5 | 400 |
-| GPU row name | 9.5 | 400 |
-| GPU row value | 10.0 | 600 |
-| GPU row temperature | 9.5 | 400 |
-| GPU footer | 9.0 | 400 |
+| Todo text | 11.5 | 400 |
+| Settings group label | 11.0 | 400 |
+| Settings control | 11.0 | 400/600 selected |
+| Settings footer | 10.5 | 400 |
+| Panel version | 10.5 | 400 |
+| Card label | 11.0 | 400 |
+| Card value | 26.0 | 600 |
+| Card secondary | 11.5 | 400 |
+| GPU row name | 11.5 | 400 |
+| GPU row value | 12.0 | 600 |
+| GPU row temperature | 11.5 | 400 |
+| GPU footer | 11.0 | 400 |
+
+The values above already include a +2 DIP global boost applied inside
+`Renderer`. The Compact and Large settings multiply every size by 0.9 or 1.15
+on top of that.
 
 Rules:
 
@@ -144,7 +163,11 @@ Rules:
   appropriate; `G` is an intentional compact unit in the strip.
 - Use `°C` in the panel and `°` in the strip.
 - The Compact / Normal / Large text-size choices scale all text through the
-  renderer; keep labels short enough to survive a 15% increase.
+  renderer and scale the panel geometry through `Layout`; do not hard-code
+  per-widget sizes.
+- Every label passes through `text_fit` (shrinks to a floor) or `truncate`
+  (ellipsis). Text must never clip a chip, card, row, or tab; prefer shrinking
+  the label over widening the layout.
 - Network throughput uses compact `K`, `M`, and `G` suffixes and arrows:
   `↓` download, `↑` upload.
 
@@ -220,12 +243,14 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 ### Panel tab bar
 
 - `Overview`, `Pomodoro`, `Todo`, `Settings`, and `Appearance` tabs on the
-  bottom leading edge. Tabs are 58 px wide with 5 px gaps.
+  bottom leading edge. Tabs allocate the available width proportionally
+  (weights 8 / 8 / 4 / 8 / 10) with a 44 px minimum and 5 px gaps; each label is
+  fitted inside its tab so a long row never clips or pushes the version badge.
 - The selected tab uses primary text, a subtle card fill, and a 2 px accent
   underline. Hovering an unselected tab applies the same card fill and primary
   text.
 - The current version, such as `v0.1.0`, is right-aligned in the same bottom
-  bar, secondary.
+  bar, secondary, in a reserved 48 px slot.
 - No divider; the 36 px bottom bar supplies separation.
 - The bottom anchor keeps the tab strip under the pointer across panel height
   changes.
@@ -239,7 +264,7 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 - The CPU card shows overall load, temperature, thread count, and an overall
   load bar. It does not use per-core mini bars; they were unreadable at card
   scale.
-- Network throughput lives in its own 368 × 28 px row below the card grid, with
+- Network throughput lives in its own 368 × 30 px row below the card grid, with
   a `NETWORK` label and right-aligned `↓`/`↑` rates. It never shares a card with
   another metric.
 - The GPU card uses one row per adapter, with name, utilization, temperature,
@@ -250,7 +275,7 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 ### Settings tab
 
 The settings surface is a two-column form with a 10 px gap between columns. The
-panel is 348 px while Settings is active.
+panel is 352 px while Settings is active at Normal text size.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
@@ -261,8 +286,9 @@ panel is 348 px while Settings is active.
 | 5 | GPUs: one chip per detected adapter | |
 | Footer | Start with Windows | Reset defaults |
 
-- Group labels are muted 9 px uppercase.
-- Controls are 24 px high with a 6 px radius.
+- Group labels are muted uppercase at 11 px base.
+- Controls are 24 px high with a 6 px radius at Normal, and grow with the text
+  setting.
 - Unselected controls use the track fill, soft card border, and secondary text.
 - Selected controls use a card fill, primary semibold text, and a 2 px accent
   underline; hovered controls use the card fill and primary text.
@@ -277,7 +303,7 @@ panel is 348 px while Settings is active.
 ### Appearance tab
 
 The appearance surface keeps visual choices separate from behavior settings. The
-panel is 204 px while Appearance is active.
+panel is 208 px while Appearance is active at Normal text size.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
@@ -291,16 +317,18 @@ panel is 204 px while Appearance is active.
 - Accent swatches update progress fills immediately.
 - Accent swatches are 20 px; the selected swatch gets a 1 px primary ring,
   hovered swatches get an accent ring.
-- Text size scales all renderer text and writes `font_scale` (`0.9`, `1.0`, or
-  `1.15`).
+- Text size scales all renderer text and every panel metric, and writes
+  `font_scale` (`0.9`, `1.0`, or `1.15`). Long labels shrink or ellipsize
+  instead of overflowing their control.
 - Every change applies immediately and writes the config file.
 
 ### Pomodoro tab
 
-- Large `MM:SS` countdown in a 368 × 104 card at y 32, with phase, running
-  state, and a 6 px progress bar directly below the card.
-- `Start/Pause`, `Reset`, and `Skip` controls are 24 px high and share the
-  48 px control grid.
+- Large `MM:SS` countdown in a 368 × 104 card at y 32 (101-108 px as text
+  scales), with phase, running state, and a 6 px progress bar directly below
+  the card.
+- `Start/Pause`, `Reset`, and `Skip` controls are 24 px high at Normal and share
+  the 48 px control grid.
 - Focus and break presets are separate two-chip rows.
 - The completed-session count is secondary text below the controls.
 - At phase end, switch phases and send a tray balloon notification. The break
@@ -308,11 +336,13 @@ panel is 204 px while Appearance is active.
 
 ### Todo tab
 
-- Five 28 px rows at a 34 px pitch from y 32; each row has a 16 px checkbox,
-  truncated task text, and a delete `×`.
-- `Add task` opens a themed 360 × 156 dialog: rounded surface, muted `NEW TASK`
+- Five 30 px rows at a 34-35 px pitch from y 36; each row has a 16 px checkbox,
+  truncated task text (ellipsis measured against the row), and a delete `×`.
+- `Add task` opens a themed 360 × 164 dialog: rounded surface, muted `NEW TASK`
   label, inset text field, hint text, and Cancel/Add controls. The dialog uses
-  the active theme palette and the same accent/contrast rules as the panel.
+  the active theme palette and the same accent/contrast rules as the panel. Its
+  text scales with the text setting; the hint and buttons fit instead of
+  clipping.
 - `Clear completed` removes done tasks.
 - Page controls appear only when more than one page is needed.
 - Up to 20 tasks are stored; empty text is discarded by config validation.
@@ -379,8 +409,9 @@ panel is 204 px while Appearance is active.
 1. Strip at 100%: labels, temperatures, values, and bars align; no cell text
    touches its neighbor.
 2. Five-cell layout at 420 px; strip remains clear of the notification area.
-3. Overview at 400 × 318, Pomodoro at 400 × 348, Todo at 400 × 280, Settings at
-   400 × 348, and Appearance at 400 × 204; all content fits without clipping,
+3. Overview at 400 × 322, Pomodoro at 400 × 352, Todo at 400 × 290, Settings at
+   400 × 352, and Appearance at 400 × 208 at Normal; every page also fits at
+   Compact and Large without clipping or a clipped tab,
    with 6 DIP side margins and 16 px top/bottom padding above the tab bar.
 4. System, Dark, Light, AMOLED, Slate, and Sand themes retain hierarchy and
    contrast in Solid, Blur, and Clear styles.

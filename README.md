@@ -31,8 +31,10 @@ only user-mode Windows APIs.
 - **Six color themes**: System, Dark, Light, AMOLED, Slate, and Sand.
 - **Three independent surface styles**: Solid, Blur (a captured desktop blur
   behind the panel), and Clear (translucent without blur).
-- **Text size control**: Compact, Normal, or Large, applied to the strip and the
-  panel.
+- **Text size control**: Compact, Normal, or Large. Panel geometry, tabs, and
+  controls scale with the text, long labels shrink or ellipsize instead of
+  overflowing, and the strip follows the setting up to its fixed taskbar
+  height.
 - **Per-GPU controls**: each adapter gets its own strip cell and can be shown or
   hidden independently.
 - **Network speed**: download and upload rates from Windows performance counters,

@@ -84,9 +84,10 @@ contributes one cell per physical adapter.
 
 Popup placement:
 
-- Content width 400 DIP plus 6 DIP transparent side margins; height 318 DIP
-  for Overview, 348 DIP for Pomodoro, 280 DIP for Todo, 348 DIP for Settings,
-  and 204 DIP for Appearance, scaled by taskbar DPI.
+- Content width 400 DIP plus 6 DIP transparent side margins; height derives
+  from `ui::Layout` and the active tab (322 DIP for Overview, 352 DIP for
+  Pomodoro, 290 DIP for Todo, 352 DIP for Settings, and 208 DIP for Appearance
+  at Normal text size), scaled by taskbar DPI.
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
   below a top taskbar.
@@ -127,10 +128,13 @@ UI composition lives in `src/ui.rs`:
 - `draw_panel` draws the bottom tab bar and dispatches to the overview cards,
   Pomodoro, Todo, Settings, or Appearance.
 - `draw_settings`, `draw_appearance`, `draw_pomodoro`, `draw_todo`,
-  `action_at`, and `settings_rect` share one fixed control geometry for drawing
-  and hit testing.
+  `action_at`, and `settings_rect` share one `ui::Layout` for drawing and hit
+  testing. `Layout::new(config.font_scale)` derives row steps, chip heights,
+  card heights, and page heights, so geometry tracks the text size.
 - `Renderer::set_font_scale` applies the Compact/Normal/Large text-size setting
-  to every text draw.
+  to every text draw, on top of a +2 DIP base boost. `Renderer::text_fit` and
+  `Renderer::truncate` measure with DirectWrite so labels shrink or ellipsize
+  instead of overflowing.
 - `palette` resolves a color theme (system/dark/light/amoled/slate/sand) and
   then applies a surface style (solid/blur/clear); `palette` and threshold
   helpers are the only places that decide semantic colors.
@@ -182,10 +186,11 @@ Popup input:
 ## Settings and Appearance flow
 
 Settings and Appearance are control surfaces rendered inside the same popup.
-The panel height is 318 DIP for Overview, 348 DIP for Pomodoro, 280 DIP for
-Todo, 348 DIP for Settings, and 204 DIP for Appearance. Every page shares the
-same 16 px edge padding, 12 px label height, 24 px control height, and 48 px
-row step; page heights follow from those tokens.
+The panel height is 322 DIP for Overview, 352 DIP for Pomodoro, 290 DIP for
+Todo, 352 DIP for Settings, and 208 DIP for Appearance at Normal text size.
+Every page shares the same 16 px edge padding, 12 px label height, 24 px base
+control height, and 48 px base row step; `Layout` scales those tokens with
+`font_scale`, and page heights follow from them.
 
 1. A click arrives at the popup in physical pixels.
 2. `App::panel_point` converts the point to DIPs.

@@ -445,7 +445,13 @@ impl App {
                     self.hide_timer = false;
                 }
                 let (x, y) = self.panel_point(lparam);
-                let hover = ui::action_at(self.panel_tab, x, y, self.sampler.gpu_names().len());
+                let hover = ui::action_at(
+                    self.panel_tab,
+                    x,
+                    y,
+                    self.sampler.gpu_names().len(),
+                    &ui::Layout::new(self.config.font_scale),
+                );
                 if hover != self.panel_hover {
                     self.panel_hover = hover;
                     self.render_popup();
@@ -465,9 +471,13 @@ impl App {
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
             WM_LBUTTONUP => {
                 let (x, y) = self.panel_point(lparam);
-                if let Some(action) =
-                    ui::action_at(self.panel_tab, x, y, self.sampler.gpu_names().len())
-                {
+                if let Some(action) = ui::action_at(
+                    self.panel_tab,
+                    x,
+                    y,
+                    self.sampler.gpu_names().len(),
+                    &ui::Layout::new(self.config.font_scale),
+                ) {
                     self.handle_panel_action(action);
                 } else if self.pinned {
                     self.hide_popup();
@@ -585,7 +595,7 @@ impl App {
         let width = self.strip_w_px as f32 * 96.0 / self.strip_dpi as f32;
         let height = self.strip_h_px as f32 * 96.0 / self.strip_dpi as f32;
         self.strip_renderer
-            .set_font_scale(self.config.font_scale as f32);
+            .set_font_scale((self.config.font_scale as f32).min(1.0));
         if let Err(error) = ui::draw_strip(
             &self.strip_renderer,
             self.strip,
@@ -603,7 +613,10 @@ impl App {
         let Some(tb) = self.taskbar else { return };
         let dpi = tb.dpi.max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
-        let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
+        let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
+            * dpi as f32
+            / 96.0)
+            .round() as i32;
         if self.popup_renderer.resize(width, height, dpi).is_err() {
             return;
         }
@@ -618,7 +631,7 @@ impl App {
             &self.config,
             self.light,
             ui::PANEL_WIDTH,
-            ui::panel_height(self.panel_tab),
+            ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale)),
             self.panel_tab,
             self.panel_hover,
             &self.pomodoro,
@@ -683,7 +696,10 @@ impl App {
         }
         let dpi = tb.dpi.max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
-        let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
+        let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
+            * dpi as f32
+            / 96.0)
+            .round() as i32;
 
         let mut strip_rect = RECT::default();
         let mut taskbar_rect = RECT::default();
@@ -1015,7 +1031,7 @@ impl App {
         let colors = ui::todo_dialog_colors(&self.config, self.light);
         let font = unsafe {
             CreateFontW(
-                -(14.0 * scale).round() as i32,
+                -(14.0 * scale * self.config.font_scale as f32).round() as i32,
                 0,
                 0,
                 0,
@@ -1530,7 +1546,8 @@ impl App {
         let layout_changed = before.position != self.config.position
             || before.offset != self.config.offset
             || before.widgets != self.config.widgets
-            || before.gpu_visible != self.config.gpu_visible;
+            || before.gpu_visible != self.config.gpu_visible
+            || before.font_scale != self.config.font_scale;
         let theme_changed = before.theme != self.config.theme || before.style != self.config.style;
         self.refresh_snapshot();
         if layout_changed {

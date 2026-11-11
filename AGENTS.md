@@ -115,8 +115,9 @@ The app exits through the strip context menu: right-click the strip and choose
   selected controls.
 - Use `Segoe UI`. Labels and secondary text are normal weight; primary values
   are semibold.
-- Use 9 px labels and temperatures, 17 px strip values, and 24 px panel values
-  at 96 DPI.
+- Text carries a +2 DIP global boost in `Renderer`; the documented sizes in
+  `DESIGN.md` are the resulting Normal sizes at 96 DPI (11 px labels, 19 px
+  strip values, 26 px panel values).
 - Keep the strip at a 4 px inset, 12 px outer radius, 72 px cells, and 10 px
   inter-cell gaps unless the documented composition changes.
 - Keep motion brief and interruptible: the panel fades in over 140 ms and out
@@ -125,20 +126,25 @@ The app exits through the strip context menu: right-click the strip and choose
 - Verify System, Dark, Light, AMOLED, Slate, and Sand themes in Solid, Blur,
   and Clear styles, plus `mem_mode`/`disk_mode` in both `gb` and `percent`
   modes.
-- Settings and Appearance controls use the 24 px chip geometry, 6 px radius,
-  soft card border, card fill, 2 px accent selected underline, and primary
-  semibold selected text.
-- Keep the Overview panel at 400 × 318 DIP, Pomodoro at 400 × 348 DIP, Todo at
-  400 × 280 DIP, Settings at 400 × 348 DIP, and Appearance at 400 × 204 DIP
-  unless layout and hit-testing constants are updated together. Every page uses
-  the shared `PAD`, `LABEL_H`, `CHIP_H`, `CHIP_TOP`, and `ROW_STEP` tokens so
-  the top and bottom padding stay at 16 px. Tabs belong on
-  the bottom bar so switching tabs does not move them out from under the
-  pointer.
-- Keep the five bottom tabs at 58 px wide with 5 px gaps and reserve the right
-  side of the bar for the version label.
-- The font size chips scale text through `Renderer::set_font_scale`; do not
-  hard-code per-widget font sizes for the Compact/Normal/Large setting.
+- Settings and Appearance controls use the 24 px chip base geometry, 6 px
+  radius, soft card border, card fill, 2 px accent selected underline, and
+  primary semibold selected text.
+- Keep the Overview panel at 400 × 322 DIP, Pomodoro at 400 × 352 DIP, Todo at
+  400 × 290 DIP, Settings at 400 × 352 DIP, and Appearance at 400 × 208 DIP at
+  Normal text size; `Layout` derives every height, row step, chip height, and
+  card height from `font_scale`, so drawing and hit testing must share it.
+  Every page uses the shared `PAD` and `LABEL_H` tokens so the top and bottom
+  padding stay at 16 px. Tabs belong on the bottom bar so switching tabs does
+  not move them out from under the pointer.
+- Keep the five bottom tabs proportional (weights 8/8/4/8/10, 44 px minimum,
+  5 px gaps), fit each label inside its tab, and reserve a 48 px slot at the
+  right for the version label.
+- The font size chips scale text through `Renderer::set_font_scale` and layout
+  through `ui::Layout`; do not hard-code per-widget font sizes or geometry for
+  the Compact/Normal/Large setting. The strip caps the setting at Normal so it
+  fits the fixed taskbar row.
+- Every label must pass through `text_fit` or `truncate`; text may shrink or
+  ellipsize, but never clip a chip, card, row, or tab.
 - Reuse the current blurred backdrop when resizing an already-open panel. Do
   not hide the popup on tab changes; that produces the flash the bottom-tab
   layout is designed to avoid.
