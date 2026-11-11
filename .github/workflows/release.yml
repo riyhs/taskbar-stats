@@ -45,8 +45,13 @@ jobs:
           "ZIP=TaskbarStats-$version-windows-x64.zip" >> $env:GITHUB_ENV
           "SETUP=TaskbarStats-$version-windows-x64-setup.exe" >> $env:GITHUB_ENV
           "SHA=TaskbarStats-$version-windows-x64.sha256" >> $env:GITHUB_ENV
-          $previous = git describe --tags --abbrev=0 --match 'v[0-9]*' "$tag^" 2>$null
-          if (-not $previous) {
+          $previous = ""
+          try {
+            $candidate = git describe --tags --abbrev=0 --match 'v[0-9]*' "$tag^" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              $previous = $candidate
+            }
+          } catch {
             $previous = ""
           }
           "PREVIOUS_TAG=$previous" >> $env:GITHUB_ENV
