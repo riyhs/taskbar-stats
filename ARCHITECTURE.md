@@ -84,8 +84,8 @@ contributes one cell per physical adapter.
 
 Popup placement:
 
-- Content width 400 DIP plus 6 DIP transparent side margins; height 280 DIP
-  for Overview, 360 DIP for Pomodoro, 320 DIP for Todo, 332 DIP for Settings,
+- Content width 400 DIP plus 6 DIP transparent side margins; height 318 DIP
+  for Overview, 348 DIP for Pomodoro, 280 DIP for Todo, 348 DIP for Settings,
   and 204 DIP for Appearance, scaled by taskbar DPI.
 - Horizontally centered on the strip and clamped to the monitor work area.
 - Placed 6 DIP from the taskbar on its inner side: above a bottom taskbar,
@@ -175,13 +175,17 @@ Popup input:
     hides it) and closes a pinned panel.
 - Right click closes.
 - The popup never activates. The Add task dialog is a short-lived normal
-  top-level window so it can receive keyboard input.
+  top-level window so it can receive keyboard input; its chrome is drawn by the
+  same Direct2D renderer and palette as the panel, while a borderless native
+  `EDIT` provides text entry and IME support.
 
 ## Settings and Appearance flow
 
 Settings and Appearance are control surfaces rendered inside the same popup.
-The panel height is 280 DIP for Overview, 360 DIP for Pomodoro, 320 DIP for
-Todo, 332 DIP for Settings, and 204 DIP for Appearance.
+The panel height is 318 DIP for Overview, 348 DIP for Pomodoro, 280 DIP for
+Todo, 348 DIP for Settings, and 204 DIP for Appearance. Every page shares the
+same 16 px edge padding, 12 px label height, 24 px control height, and 48 px
+row step; page heights follow from those tokens.
 
 1. A click arrives at the popup in physical pixels.
 2. `App::panel_point` converts the point to DIPs.

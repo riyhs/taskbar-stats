@@ -127,9 +127,11 @@ The app exits through the strip context menu: right-click the strip and choose
 - Settings and Appearance controls use the 24 px chip geometry, 6 px radius,
   soft card border, card fill, 2 px accent selected underline, and primary
   semibold selected text.
-- Keep the Overview panel at 400 × 280 DIP, Pomodoro at 400 × 360 DIP, Todo at
-  400 × 320 DIP, Settings at 400 × 332 DIP, and Appearance at 400 × 204 DIP
-  unless layout and hit-testing constants are updated together. Tabs belong on
+- Keep the Overview panel at 400 × 318 DIP, Pomodoro at 400 × 348 DIP, Todo at
+  400 × 280 DIP, Settings at 400 × 348 DIP, and Appearance at 400 × 204 DIP
+  unless layout and hit-testing constants are updated together. Every page uses
+  the shared `PAD`, `LABEL_H`, `CHIP_H`, `CHIP_TOP`, and `ROW_STEP` tokens so
+  the top and bottom padding stay at 16 px. Tabs belong on
   the bottom bar so switching tabs does not move them out from under the
   pointer.
 - Keep the five bottom tabs at 58 px wide with 5 px gaps and reserve the right

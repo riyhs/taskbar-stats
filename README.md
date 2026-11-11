@@ -36,7 +36,8 @@ only user-mode Windows APIs.
 - **Per-GPU controls**: each adapter gets its own strip cell and can be shown or
   hidden independently.
 - **Network speed**: download and upload rates from Windows performance counters,
-  available as an optional `NET` strip cell and in the Overview panel.
+  available as an optional `NET` strip cell and in a dedicated `NETWORK` row
+  under the Overview cards.
 - **Smart taskbar placement**: avoids existing taskbar buttons and the
   notification area, snaps into a free gap, and can be dragged into a new spot.
 - **Tray icon** while the app is running. Left-click it to open the panel;
@@ -164,7 +165,7 @@ next session. The timer continues while the panel is closed.
 
 ### Todo
 
-Use **Add task** to open a small text dialog. Click the checkbox to mark a task
+Use **Add task** to open a themed text dialog that matches the active theme. Click the checkbox to mark a task
 done, `×` to delete it, or **Clear completed** to remove finished items. Tasks
 are saved immediately. Up to 20 tasks are kept; five are shown per page.
 

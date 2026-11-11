@@ -65,15 +65,16 @@ secondary text under normal conditions and warning/bad when hot.
 | --- | --- |
 | Panel width | 400 DIP |
 | Side margin | 6 DIP left and right |
-| Overview height | 280 DIP |
-| Pomodoro height | 360 DIP |
-| Todo height | 320 DIP |
-| Settings height | 332 DIP |
+| Overview height | 318 DIP |
+| Pomodoro height | 348 DIP |
+| Todo height | 280 DIP |
+| Settings height | 348 DIP |
 | Appearance height | 204 DIP |
 | Outer radius | 18 px |
 | Border | 1 px |
 | Bottom tab bar height | 36 px |
-| Padding | 16 px |
+| Padding | 16 px on every page edge |
+| Row step | 48 px (label, then 24 px controls 16 px below it) |
 | Card gap | 10 px |
 | Card size | 179 × 101 px |
 | Card radius | 12 px |
@@ -85,12 +86,14 @@ Layout:
 CPU                         MEMORY
 53%                         10.9G
 temp -- · 8 threads         of 15.8G · 69% used
-NET  ↓ 12.4M  ↑ 1.2M        [====================]
+[============--------]      [====================]
 
 DISK                        GRAPHICS
 322G                        Iris Plus   14%   --°
 47G free · 49°C             MX350        0%   52°
 [====================]      2 adapters · max 52°
+
+NETWORK                     ↓ 12.4M   ↑ 1.2M
 
 Overview  Pomodoro  Todo  Settings  Appearance   v0.1.0
 ```
@@ -232,10 +235,13 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 - Label in muted 9 px.
 - Primary value in 24 px semibold, neutral unless warning/bad.
 - Secondary line in 9.5 px: temperature, total, free space, or adapter name.
-- Memory and disk cards use a 3 px bar at the bottom.
-- The CPU card shows overall load, temperature, and thread count. It does not
-  use per-core mini bars; they were unreadable at card scale. A compact
-  `NET ↓ … ↑ …` line sits at the bottom of the CPU card.
+- Every card uses a 3 px bar at the bottom.
+- The CPU card shows overall load, temperature, thread count, and an overall
+  load bar. It does not use per-core mini bars; they were unreadable at card
+  scale.
+- Network throughput lives in its own 368 × 28 px row below the card grid, with
+  a `NETWORK` label and right-aligned `↓`/`↑` rates. It never shares a card with
+  another metric.
 - The GPU card uses one row per adapter, with name, utilization, temperature,
   and a 2 px mini bar. If there are multiple adapters, a footer summarizes the
   count and highest available temperature.
@@ -244,7 +250,7 @@ Slate + Blur stays blue-gray, and Sand + Blur keeps its warm light tint.
 ### Settings tab
 
 The settings surface is a two-column form with a 10 px gap between columns. The
-panel is 332 px while Settings is active.
+panel is 348 px while Settings is active.
 
 | Row | Left column | Right column |
 | --- | --- | --- |
@@ -291,9 +297,10 @@ panel is 204 px while Appearance is active.
 
 ### Pomodoro tab
 
-- Large `MM:SS` countdown in a 368 × 96 card, with phase, running state, and a
-  6 px progress bar.
-- `Start/Pause`, `Reset`, and `Skip` controls are 28 px high.
+- Large `MM:SS` countdown in a 368 × 104 card at y 32, with phase, running
+  state, and a 6 px progress bar directly below the card.
+- `Start/Pause`, `Reset`, and `Skip` controls are 24 px high and share the
+  48 px control grid.
 - Focus and break presets are separate two-chip rows.
 - The completed-session count is secondary text below the controls.
 - At phase end, switch phases and send a tray balloon notification. The break
@@ -301,10 +308,12 @@ panel is 204 px while Appearance is active.
 
 ### Todo tab
 
-- Five 34 px rows per page, each with a 16 px checkbox, task text, and a delete
-  `×`.
-- `Add task` opens a small native text dialog; `Clear completed` removes done
-  tasks.
+- Five 28 px rows at a 34 px pitch from y 32; each row has a 16 px checkbox,
+  truncated task text, and a delete `×`.
+- `Add task` opens a themed 360 × 156 dialog: rounded surface, muted `NEW TASK`
+  label, inset text field, hint text, and Cancel/Add controls. The dialog uses
+  the active theme palette and the same accent/contrast rules as the panel.
+- `Clear completed` removes done tasks.
 - Page controls appear only when more than one page is needed.
 - Up to 20 tasks are stored; empty text is discarded by config validation.
 
@@ -370,9 +379,9 @@ panel is 204 px while Appearance is active.
 1. Strip at 100%: labels, temperatures, values, and bars align; no cell text
    touches its neighbor.
 2. Five-cell layout at 420 px; strip remains clear of the notification area.
-3. Overview at 400 × 280, Pomodoro at 400 × 360, Todo at 400 × 320, Settings at
-   400 × 332, and Appearance at 400 × 204; all content fits without clipping,
-   with 6 DIP side margins.
+3. Overview at 400 × 318, Pomodoro at 400 × 348, Todo at 400 × 280, Settings at
+   400 × 348, and Appearance at 400 × 204; all content fits without clipping,
+   with 6 DIP side margins and 16 px top/bottom padding above the tab bar.
 4. System, Dark, Light, AMOLED, Slate, and Sand themes retain hierarchy and
    contrast in Solid, Blur, and Clear styles.
 5. `mem_mode` and `disk_mode` in `gb` and `percent` do not overflow cells.

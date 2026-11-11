@@ -23,9 +23,9 @@ use windows::Win32::Graphics::DirectWrite::{
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, AC_SRC_ALPHA,
-    AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC,
-    HGDIOBJ,
+    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject,
+    AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS,
+    HBITMAP, HDC, HGDIOBJ, SRCCOPY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{UpdateLayeredWindow, ULW_ALPHA};
 
@@ -159,10 +159,31 @@ impl Renderer {
     }
 
     pub fn end(&self, hwnd: HWND) -> Result<()> {
+        self.end_draw()?;
+        self.present(hwnd)
+    }
+
+    pub fn end_draw(&self) -> Result<()> {
         unsafe {
             self.target.EndDraw(None, None)?;
         }
-        self.present(hwnd)
+        Ok(())
+    }
+
+    pub fn blit(&self, hdc: HDC) {
+        unsafe {
+            let _ = BitBlt(
+                hdc,
+                0,
+                0,
+                self.width,
+                self.height,
+                self.mem_dc,
+                0,
+                0,
+                SRCCOPY,
+            );
+        }
     }
 
     pub fn present(&self, hwnd: HWND) -> Result<()> {
