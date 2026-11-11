@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -43,6 +45,11 @@ jobs:
           "ZIP=TaskbarStats-$version-windows-x64.zip" >> $env:GITHUB_ENV
           "SETUP=TaskbarStats-$version-windows-x64-setup.exe" >> $env:GITHUB_ENV
           "SHA=TaskbarStats-$version-windows-x64.sha256" >> $env:GITHUB_ENV
+          $previous = git describe --tags --abbrev=0 --match 'v[0-9]*' "$tag^" 2>$null
+          if (-not $previous) {
+            $previous = ""
+          }
+          "PREVIOUS_TAG=$previous" >> $env:GITHUB_ENV
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -92,12 +99,28 @@ jobs:
           $checksums | Set-Content -Path "dist/$env:SHA" -Encoding ASCII
           Get-ChildItem dist | Select-Object Name, Length
 
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $arguments = @(
+            "scripts/release_notes.py",
+            "--to", "${{ github.ref_name }}",
+            "--repo", "${{ github.repository }}",
+            "--output", "RELEASE_NOTES.md"
+          )
+          if ("${{ env.PREVIOUS_TAG }}") {
+            $arguments += @("--from", "${{ env.PREVIOUS_TAG }}")
+          }
+          python @arguments
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Taskbar Stats ${{ env.VERSION }}
+          name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: false
+          make_latest: true
           fail_on_unmatched_files: true
           files: |
             dist/${{ env.ZIP }}

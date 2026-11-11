@@ -20,6 +20,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Check release notes script
+        run: python -m py_compile scripts/release_notes.py
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

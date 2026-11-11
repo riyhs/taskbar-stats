@@ -70,6 +70,7 @@ The app exits through the strip context menu: right-click the strip and choose
 | `build.rs` | Embeds the application manifest and compiles the icon resource |
 | `taskbar-stats.rc`, `assets/icon.ico` | Windows executable icon resource |
 | `scripts/build.bat` | Visual Studio/SDK bootstrap and Cargo invocation |
+| `scripts/release_notes.py` | Generates grouped release notes from conventional commits |
 | `scripts/build-installer.ps1` | Inno Setup bootstrap and installer build |
 | `installer/taskbar-stats.iss` | Per-user installer and uninstaller definition |
 | `.github/workflows/ci.yml` | Format, clippy, test, and release-build checks |

@@ -309,7 +309,10 @@ Runtime log: `%APPDATA%\TaskbarStats\taskbar-stats.log`
 - `.github/workflows/ci.yml` runs formatting, clippy with warnings denied, tests,
   and a locked release build on pull requests and manual dispatches.
 - `.github/workflows/release.yml` runs on `v*` tags, verifies the tag matches
-  `Cargo.toml`, builds the executable and installer, and publishes:
+  `Cargo.toml`, builds the executable and installer, and publishes a release
+  titled with the tag. Release notes are generated from the conventional commits
+  since the previous tag, grouped into Added, Changed, Fixed, and Removed, with
+  `#` issue references and contributor thanks. Artifacts:
   - `TaskbarStats-<version>-windows-x64.zip`
   - `TaskbarStats-<version>-windows-x64.exe`
   - `TaskbarStats-<version>-windows-x64-setup.exe`
