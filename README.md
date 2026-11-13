@@ -314,7 +314,9 @@ Runtime log: `%APPDATA%\TaskbarStats\taskbar-stats.log`
   `Cargo.toml`, builds the executable and installer, and publishes a release
   titled with the tag. Release notes are generated from the conventional commits
   since the previous tag, grouped into Added, Changed, Fixed, and Removed, with
-  `#` issue references and contributor thanks. Artifacts:
+  `#` issue references, contributor thanks, and a commit link on every bullet.
+  Set a `RELEASE_TOKEN` secret to publish releases under a real account instead
+  of `github-actions[bot]`. Artifacts:
   - `TaskbarStats-<version>-windows-x64.zip`
   - `TaskbarStats-<version>-windows-x64.exe`
   - `TaskbarStats-<version>-windows-x64-setup.exe`

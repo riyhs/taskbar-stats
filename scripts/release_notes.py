@@ -38,6 +38,7 @@ class Entry:
     summary: str
     references: list[int]
     thanks: list[str]
+    commit: str
 
 
 def git(*args: str) -> str:
@@ -95,7 +96,9 @@ def logins(body: str, emails: list[str], owner: str) -> list[str]:
     return thanks
 
 
-def entry_for(subject: str, body: str, email: str, owner: str) -> Entry | None:
+def entry_for(
+    subject: str, body: str, email: str, owner: str, commit: str
+) -> Entry | None:
     match = CONVENTIONAL.match(subject)
     if match:
         kind = match.group("type").lower()
@@ -116,10 +119,17 @@ def entry_for(subject: str, body: str, email: str, owner: str) -> Entry | None:
         summary = f"**Breaking:** {summary}"
     references = sorted({int(number) for number in REFERENCE.findall(f"{subject}\n{body}")})
     thanks = logins(body, [email], owner)
-    return Entry(section, summary, references, thanks)
+    return Entry(section, summary, references, thanks, commit)
 
 
-def render(entries: list[Entry]) -> str:
+def commit_link(commit: str, repo: str) -> str:
+    short = commit[:7]
+    if "/" not in repo:
+        return short
+    return f"[{short}](https://github.com/{repo}/commit/{commit})"
+
+
+def render(entries: list[Entry], repo: str) -> str:
     lines: list[str] = []
     for section in SECTIONS:
         items = [entry for entry in entries if entry.section == section]
@@ -130,10 +140,8 @@ def render(entries: list[Entry]) -> str:
             suffix = [f"#{number}" for number in entry.references]
             if entry.thanks:
                 suffix.append("thanks " + ", ".join(f"@{login}" for login in entry.thanks))
-            bullet = f"- {entry.summary}"
-            if suffix:
-                bullet += f" ({', '.join(suffix)})"
-            lines.append(bullet)
+            suffix.append(commit_link(entry.commit, repo))
+            lines.append(f"- {entry.summary} ({', '.join(suffix)})")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -151,22 +159,22 @@ def main() -> int:
     commits = read_commits(start, args.end)
 
     entries: list[Entry] = []
-    for _, subject, body, email in commits:
-        entry = entry_for(subject, body, email, owner)
+    for commit, subject, body, email in commits:
+        entry = entry_for(subject, body, email, owner, commit)
         if entry:
             entries.append(entry)
 
     if not entries and commits:
         entries = [
-            Entry("Changed", TRAILING_REFS.sub("", subject).strip(), [], [])
-            for _, subject, _, _ in commits
+            Entry("Changed", TRAILING_REFS.sub("", subject).strip(), [], [], commit)
+            for commit, subject, _, _ in commits
             if subject
         ]
         for entry in entries:
             if entry.summary and entry.summary[0].islower():
                 entry.summary = entry.summary[0].upper() + entry.summary[1:]
 
-    notes = render(entries) if entries else "No changes in this release.\n"
+    notes = render(entries, args.repo) if entries else "No changes in this release.\n"
     if args.output:
         with open(args.output, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(notes)
