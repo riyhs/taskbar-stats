@@ -321,6 +321,9 @@ Runtime log: `%APPDATA%\TaskbarStats\taskbar-stats.log`
   - `TaskbarStats-<version>-windows-x64.exe`
   - `TaskbarStats-<version>-windows-x64-setup.exe`
   - `TaskbarStats-<version>-windows-x64.sha256`
+- `.github/workflows/prepare-release.yml` bumps the version and pushes the tag.
+  It runs automatically when the merged commit carries a `Release-As: 0.2.0`
+  footer, and on demand for everything else. It needs the `RELEASE_TOKEN` secret.
 
 See [docs/RELEASING.md](docs/RELEASING.md) for the release checklist.
 

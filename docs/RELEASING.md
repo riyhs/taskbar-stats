@@ -40,6 +40,41 @@ The release workflow rejects a tag that does not match `Cargo.toml`. It exports
 footer comes from the release tag. Local builds fall back to the Cargo package
 version.
 
+## Preparing a release
+
+`prepare-release.yml` performs the version bump and tag creation so the two
+cannot drift apart. It has two entry points.
+
+**Automatic, on merge.** Add a footer to the commit that lands on `main`:
+
+```text
+Release-As: 0.2.0
+```
+
+Edit the commit message in GitHub's merge dialog (or the squash commit message).
+A pull request description is only used if your merge method copies it into the
+commit. On push, the workflow reads the footer, runs `scripts/bump_version.py`,
+commits `chore(release): bump version to 0.2.0`, tags `v0.2.0` on that commit,
+and pushes both. The tag push starts `release.yml`.
+
+**Manual.** Actions → **Prepare release** → *Run workflow*. Leave `version` empty
+to bump the current version by `patch`, `minor`, or `major`, or type an exact
+version. A manual run always releases `main`.
+
+Both paths require the `RELEASE_TOKEN` secret. The workflow fails fast without
+it, because a tag pushed with `GITHUB_TOKEN` does not start another workflow run.
+The same token makes the release page show a real account instead of
+`github-actions[bot]`.
+
+Re-running is safe. On a push, a commit whose subject starts with
+`chore(release):` is skipped, so the workflow's own bump commit does not loop;
+a manual run ignores that guard so a half-finished release can be completed. A
+version already present in `Cargo.toml` produces no commit. An existing
+`v<version>` tag ends the run.
+
+Only tag commits that are on `main`. `release.yml` has no branch filter, so a tag
+pushed from a feature branch releases that commit even if it was never merged.
+
 ## Release notes
 
 The GitHub release title is the tag itself, for example `v0.2.0`. The body is
