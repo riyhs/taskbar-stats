@@ -19,15 +19,17 @@ use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
     DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_MEASURING_MODE_NATURAL,
     DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_TEXT_ALIGNMENT, DWRITE_TEXT_ALIGNMENT_LEADING,
-    DWRITE_WORD_WRAPPING_NO_WRAP,
+    DWRITE_TEXT_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, AC_SRC_ALPHA,
-    AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC,
-    HGDIOBJ,
+    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject,
+    AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS,
+    HBITMAP, HDC, HGDIOBJ, SRCCOPY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{UpdateLayeredWindow, ULW_ALPHA};
+
+const TEXT_BOOST: f32 = 2.0;
 
 pub struct Renderer {
     factory: ID2D1Factory,
@@ -41,6 +43,7 @@ pub struct Renderer {
     height: i32,
     dpi: f32,
     alpha: Cell<f32>,
+    font_scale: Cell<f32>,
 }
 
 impl Renderer {
@@ -62,6 +65,7 @@ impl Renderer {
                 height: 0,
                 dpi: 96.0,
                 alpha: Cell::new(1.0),
+                font_scale: Cell::new(1.0),
             })
         }
     }
@@ -152,11 +156,36 @@ impl Renderer {
         self.alpha.set(alpha.clamp(0.0, 1.0));
     }
 
+    pub fn set_font_scale(&self, scale: f32) {
+        self.font_scale.set(scale.clamp(0.85, 1.15));
+    }
+
     pub fn end(&self, hwnd: HWND) -> Result<()> {
+        self.end_draw()?;
+        self.present(hwnd)
+    }
+
+    pub fn end_draw(&self) -> Result<()> {
         unsafe {
             self.target.EndDraw(None, None)?;
         }
-        self.present(hwnd)
+        Ok(())
+    }
+
+    pub fn blit(&self, hdc: HDC) {
+        unsafe {
+            let _ = BitBlt(
+                hdc,
+                0,
+                0,
+                self.width,
+                self.height,
+                self.mem_dc,
+                0,
+                0,
+                SRCCOPY,
+            );
+        }
     }
 
     pub fn present(&self, hwnd: HWND) -> Result<()> {
@@ -251,6 +280,9 @@ impl Renderer {
         weight: DWRITE_FONT_WEIGHT,
         align: DWRITE_TEXT_ALIGNMENT,
     ) {
+        let scale = self.font_scale.get();
+        let size = (size + TEXT_BOOST) * scale;
+        let h = (h * scale).max(size * 1.42);
         unsafe {
             let Ok(format) = self.dwrite.CreateTextFormat(
                 w!("Segoe UI"),
@@ -308,6 +340,111 @@ impl Renderer {
             weight,
             DWRITE_TEXT_ALIGNMENT_LEADING,
         );
+    }
+
+    fn scaled_size(&self, size: f32) -> f32 {
+        (size + TEXT_BOOST) * self.font_scale.get()
+    }
+
+    pub fn measure_text(&self, text: &str, size: f32, weight: DWRITE_FONT_WEIGHT) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let size = self.scaled_size(size);
+        unsafe {
+            let Ok(format) = self.dwrite.CreateTextFormat(
+                w!("Segoe UI"),
+                None,
+                weight,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                size,
+                w!("en-us"),
+            ) else {
+                return 0.0;
+            };
+            let _ = format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            let utf16: Vec<u16> = text.encode_utf16().collect();
+            let Ok(layout) = self
+                .dwrite
+                .CreateTextLayout(&utf16, &format, 10_000.0, 10_000.0)
+            else {
+                return 0.0;
+            };
+            let mut metrics = DWRITE_TEXT_METRICS::default();
+            if layout.GetMetrics(&mut metrics).is_err() {
+                return 0.0;
+            }
+            metrics.widthIncludingTrailingWhitespace.max(metrics.width)
+        }
+    }
+
+    pub fn fit_size(
+        &self,
+        text: &str,
+        size: f32,
+        min_size: f32,
+        width: f32,
+        weight: DWRITE_FONT_WEIGHT,
+    ) -> f32 {
+        if width <= 0.0 {
+            return min_size;
+        }
+        let measured = self.measure_text(text, size, weight);
+        if measured <= width {
+            return size;
+        }
+        let mut candidate = (size * width / measured).max(min_size);
+        while candidate > min_size + 0.01 && self.measure_text(text, candidate, weight) > width {
+            candidate = (candidate - 0.25).max(min_size);
+        }
+        candidate
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_fit(
+        &self,
+        text: &str,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        size: f32,
+        min_size: f32,
+        color: D2D1_COLOR_F,
+        weight: DWRITE_FONT_WEIGHT,
+        align: DWRITE_TEXT_ALIGNMENT,
+    ) {
+        let size = self.fit_size(text, size, min_size, w, weight);
+        self.text_weight(text, x, y, w, h, size, color, weight, align);
+    }
+
+    pub fn truncate(
+        &self,
+        text: &str,
+        width: f32,
+        size: f32,
+        weight: DWRITE_FONT_WEIGHT,
+    ) -> String {
+        if self.measure_text(text, size, weight) <= width {
+            return text.to_string();
+        }
+        let chars: Vec<char> = text.chars().collect();
+        let mut low = 0usize;
+        let mut high = chars.len();
+        let mut best = "\u{2026}".to_string();
+        while low < high {
+            let mid = (low + high).div_ceil(2);
+            let prefix = chars[..mid].iter().collect::<String>();
+            let candidate = format!("{}\u{2026}", prefix.trim_end());
+            if self.measure_text(&candidate, size, weight) <= width {
+                best = candidate;
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+        best
     }
 
     #[allow(clippy::too_many_arguments)]

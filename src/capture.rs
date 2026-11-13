@@ -54,7 +54,7 @@ pub fn screen_bgra(x: i32, y: i32, width: i32, height: i32) -> Option<Vec<u8>> {
         let mut pixels = vec![0u8; len];
         if captured {
             slice::from_raw_parts(bits.cast::<u8>(), len).clone_into(&mut pixels);
-            for pixel in pixels.chunks_exact_mut(4) {
+            for pixel in pixels.as_chunks_mut::<4>().0 {
                 pixel[3] = 255;
             }
         }

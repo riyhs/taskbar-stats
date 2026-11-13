@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -38,9 +40,21 @@ jobs:
             throw "Cargo.toml version is $cargoVersion but tag is $tag."
           }
           "VERSION=$version" >> $env:GITHUB_ENV
+          "TASKBAR_STATS_VERSION=v$version" >> $env:GITHUB_ENV
           "EXE=TaskbarStats-$version-windows-x64.exe" >> $env:GITHUB_ENV
           "ZIP=TaskbarStats-$version-windows-x64.zip" >> $env:GITHUB_ENV
-          "SHA=TaskbarStats-$version-windows-x64.zip.sha256" >> $env:GITHUB_ENV
+          "SETUP=TaskbarStats-$version-windows-x64-setup.exe" >> $env:GITHUB_ENV
+          "SHA=TaskbarStats-$version-windows-x64.sha256" >> $env:GITHUB_ENV
+          $previous = ""
+          try {
+            $candidate = git describe --tags --abbrev=0 --match 'v[0-9]*' "$tag^" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              $previous = $candidate
+            }
+          } catch {
+            $previous = ""
+          }
+          "PREVIOUS_TAG=$previous" >> $env:GITHUB_ENV
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -51,8 +65,23 @@ jobs:
       - name: Test
         run: cargo test --all-targets
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
       - name: Build release
         run: cargo build --release --locked
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            throw "Inno Setup was not found at $iscc"
+          }
+          & $iscc "/DAppVersion=$env:VERSION" "installer/taskbar-stats.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE."
+          }
 
       - name: Package release
         shell: pwsh
@@ -64,18 +93,42 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item $exe "dist/$env:EXE"
           Compress-Archive -Path "dist/$env:EXE" -DestinationPath "dist/$env:ZIP" -Force
-          $hash = (Get-FileHash "dist/$env:ZIP" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $env:ZIP" | Set-Content -Path "dist/$env:SHA" -Encoding ASCII
+          if (!(Test-Path "dist/$env:SETUP")) {
+            throw "Expected installer at dist/$env:SETUP"
+          }
+          $checksums = @()
+          foreach ($name in @($env:ZIP, $env:SETUP)) {
+            $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLower()
+            $checksums += "$hash  $name"
+          }
+          $checksums | Set-Content -Path "dist/$env:SHA" -Encoding ASCII
           Get-ChildItem dist | Select-Object Name, Length
+
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $arguments = @(
+            "scripts/release_notes.py",
+            "--to", "${{ github.ref_name }}",
+            "--repo", "${{ github.repository }}",
+            "--output", "RELEASE_NOTES.md"
+          )
+          if ("${{ env.PREVIOUS_TAG }}") {
+            $arguments += @("--from", "${{ env.PREVIOUS_TAG }}")
+          }
+          python @arguments
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Taskbar Stats ${{ env.VERSION }}
+          name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: false
+          make_latest: true
           fail_on_unmatched_files: true
           files: |
             dist/${{ env.ZIP }}
             dist/${{ env.EXE }}
+            dist/${{ env.SETUP }}
             dist/${{ env.SHA }}

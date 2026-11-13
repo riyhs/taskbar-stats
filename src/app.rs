@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::path::PathBuf;
@@ -6,23 +6,39 @@ use std::time::Instant;
 
 use windows::core::{w, Result, PCWSTR};
 use windows::Win32::Foundation::{
-    GetLastError, BOOL, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
+    GetLastError, BOOL, COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
+};
+use windows::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_ROUND,
 };
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, ValidateRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    BeginPaint, CreateFontW, CreateSolidBrush, DeleteObject, EndPaint, GetMonitorInfoW,
+    InvalidateRect, MonitorFromWindow, SetBkColor, SetTextColor, ValidateRect, CLEARTYPE_QUALITY,
+    CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE, FW_NORMAL, HBRUSH, HDC,
+    HFONT, HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+use windows::Win32::System::Registry::{
+    RegCloseKey, RegDeleteValueW, RegGetValueW, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER,
+    KEY_SET_VALUE, REG_SZ, RRF_RT_REG_DWORD,
+};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_ESCAPE,
+    VK_RETURN,
+};
+use windows::Win32::UI::Shell::{
+    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_INFO, NIM_ADD,
+    NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::capture;
-use crate::config::Config;
+use crate::config::{Config, TodoItem};
 use crate::logging;
 use crate::metrics::{Sampler, Snapshot};
+use crate::pomodoro::{self, Pomodoro};
 use crate::render::Renderer;
 use crate::taskbar::{self, Taskbar};
 use crate::ui;
@@ -30,12 +46,20 @@ use crate::ui;
 const HOST_CLASS: PCWSTR = w!("TaskbarStatsHost");
 const STRIP_CLASS: PCWSTR = w!("TaskbarStatsStrip");
 const POPUP_CLASS: PCWSTR = w!("TaskbarStatsPopup");
+const TODO_CLASS: PCWSTR = w!("TaskbarStatsTodo");
 
 const TIMER_UPDATE: usize = 1;
 const TIMER_ATTACH: usize = 2;
 const TIMER_HOVER: usize = 3;
 const TIMER_HIDE: usize = 4;
 const TIMER_ANIM: usize = 5;
+const TIMER_POMODORO: usize = 6;
+const WM_TRAY: u32 = WM_APP + 1;
+const NIN_BALLOONUSERCLICK: u32 = 0x0400 + 5;
+const TRAY_ID: u32 = 1;
+const TODO_EDIT_ID: usize = 100;
+const WM_TODO_ADD: u32 = WM_APP + 2;
+const WM_TODO_CANCEL: u32 = WM_APP + 3;
 const PANEL_SHOW_MS: u64 = 140;
 const PANEL_HIDE_MS: u64 = 110;
 
@@ -44,6 +68,7 @@ const WM_MOUSELEAVE_MSG: u32 = 0x02A3;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
+    static TODO_EDIT_PROC: Cell<isize> = const { Cell::new(0) };
 }
 
 pub fn run() -> Result<()> {
@@ -87,6 +112,7 @@ pub fn run() -> Result<()> {
             hidden,
             strip,
             popup,
+            pomodoro: Pomodoro::new(&config),
             config,
             config_path,
             taskbar: taskbar::find(),
@@ -112,6 +138,17 @@ pub fn run() -> Result<()> {
             fade: None,
             fade_timer: false,
             drag: None,
+            tray_icon: None,
+            tray_added: false,
+            todo_dialog: None,
+            todo_edit: HWND::default(),
+            todo_font: HFONT::default(),
+            todo_brush: HBRUSH::default(),
+            todo_renderer: Renderer::new()?,
+            todo_hover: None,
+            todo_tracking: false,
+            todo_dpi: 96,
+            todo_page: 0,
         };
 
         APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -153,6 +190,7 @@ struct App {
     strip_w_px: i32,
     strip_h_px: i32,
     strip_dpi: u32,
+    pomodoro: Pomodoro,
     popup_visible: bool,
     pinned: bool,
     panel_tab: ui::PanelTab,
@@ -168,6 +206,17 @@ struct App {
     fade: Option<Fade>,
     fade_timer: bool,
     drag: Option<StripDrag>,
+    tray_icon: Option<HICON>,
+    tray_added: bool,
+    todo_dialog: Option<HWND>,
+    todo_edit: HWND,
+    todo_font: HFONT,
+    todo_brush: HBRUSH,
+    todo_renderer: Renderer,
+    todo_hover: Option<ui::TodoDialogButton>,
+    todo_tracking: bool,
+    todo_dpi: u32,
+    todo_page: usize,
 }
 
 struct Fade {
@@ -187,6 +236,11 @@ struct StripDrag {
 impl App {
     fn start(&mut self) {
         self.refresh_theme();
+        if !sync_startup(self.config.launch_at_startup) {
+            logging::write("could not update startup registration");
+        }
+        self.tray_icon = load_app_icon(self.hinstance);
+        self.add_tray_icon();
         self.taskbar = taskbar::find();
         if let Some(tb) = self.taskbar {
             if taskbar::attach(self.strip, &tb) {
@@ -204,12 +258,19 @@ impl App {
         }
         unsafe {
             SetTimer(self.hidden, TIMER_UPDATE, self.config.update_ms, None);
+            SetTimer(self.hidden, TIMER_POMODORO, 1000, None);
         }
     }
 
     fn on_host(&mut self, hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if msg == self.taskbar_created {
             self.reattach();
+            self.tray_added = false;
+            self.add_tray_icon();
+            return LRESULT(0);
+        }
+        if msg == WM_TRAY {
+            self.on_tray(lparam);
             return LRESULT(0);
         }
         match msg {
@@ -218,6 +279,7 @@ impl App {
                     TIMER_UPDATE => self.sample_and_render(),
                     TIMER_ATTACH => self.reattach(),
                     TIMER_ANIM => self.tick_fade(),
+                    TIMER_POMODORO => self.tick_pomodoro(),
                     _ => {}
                 }
                 LRESULT(0)
@@ -237,6 +299,7 @@ impl App {
                 LRESULT(0)
             }
             WM_DESTROY => {
+                self.remove_tray_icon();
                 unsafe { PostQuitMessage(0) };
                 LRESULT(0)
             }
@@ -382,7 +445,13 @@ impl App {
                     self.hide_timer = false;
                 }
                 let (x, y) = self.panel_point(lparam);
-                let hover = ui::action_at(self.panel_tab, x, y, self.sampler.gpu_names().len());
+                let hover = ui::action_at(
+                    self.panel_tab,
+                    x,
+                    y,
+                    self.sampler.gpu_names().len(),
+                    &ui::Layout::new(self.config.font_scale),
+                );
                 if hover != self.panel_hover {
                     self.panel_hover = hover;
                     self.render_popup();
@@ -402,9 +471,13 @@ impl App {
             WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
             WM_LBUTTONUP => {
                 let (x, y) = self.panel_point(lparam);
-                if let Some(action) =
-                    ui::action_at(self.panel_tab, x, y, self.sampler.gpu_names().len())
-                {
+                if let Some(action) = ui::action_at(
+                    self.panel_tab,
+                    x,
+                    y,
+                    self.sampler.gpu_names().len(),
+                    &ui::Layout::new(self.config.font_scale),
+                ) {
                     self.handle_panel_action(action);
                 } else if self.pinned {
                     self.hide_popup();
@@ -521,6 +594,8 @@ impl App {
         }
         let width = self.strip_w_px as f32 * 96.0 / self.strip_dpi as f32;
         let height = self.strip_h_px as f32 * 96.0 / self.strip_dpi as f32;
+        self.strip_renderer
+            .set_font_scale((self.config.font_scale as f32).min(1.0));
         if let Err(error) = ui::draw_strip(
             &self.strip_renderer,
             self.strip,
@@ -538,11 +613,16 @@ impl App {
         let Some(tb) = self.taskbar else { return };
         let dpi = tb.dpi.max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
-        let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
+        let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
+            * dpi as f32
+            / 96.0)
+            .round() as i32;
         if self.popup_renderer.resize(width, height, dpi).is_err() {
             return;
         }
         self.popup_renderer.set_alpha(self.popup_alpha);
+        self.popup_renderer
+            .set_font_scale(self.config.font_scale as f32);
         let gpu_names = self.sampler.gpu_names();
         if let Err(error) = ui::draw_panel(
             &self.popup_renderer,
@@ -551,9 +631,11 @@ impl App {
             &self.config,
             self.light,
             ui::PANEL_WIDTH,
-            ui::panel_height(self.panel_tab),
+            ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale)),
             self.panel_tab,
             self.panel_hover,
+            &self.pomodoro,
+            self.todo_page,
             &gpu_names,
             self.backdrop.as_deref(),
             self.backdrop_w,
@@ -614,7 +696,10 @@ impl App {
         }
         let dpi = tb.dpi.max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
-        let height = (ui::panel_height(self.panel_tab) * dpi as f32 / 96.0).round() as i32;
+        let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
+            * dpi as f32
+            / 96.0)
+            .round() as i32;
 
         let mut strip_rect = RECT::default();
         let mut taskbar_rect = RECT::default();
@@ -638,12 +723,16 @@ impl App {
         } else {
             taskbar_rect.bottom + gap
         };
-        if self.config.style == "blur" && self.popup_visible {
-            unsafe {
-                let _ = ShowWindow(self.popup, SW_HIDE);
+        let needs_capture =
+            self.config.style == "blur" && (!was_visible || self.backdrop.is_none());
+        if needs_capture {
+            if was_visible {
+                unsafe {
+                    let _ = ShowWindow(self.popup, SW_HIDE);
+                }
             }
+            self.capture_backdrop(x, y, width, height, dpi);
         }
-        self.capture_backdrop(x, y, width, height, dpi);
         unsafe {
             let _ = SetWindowPos(
                 self.popup,
@@ -757,6 +846,384 @@ impl App {
             if hiding {
                 self.finish_hide_popup();
             }
+        }
+    }
+
+    fn tick_pomodoro(&mut self) {
+        if let Some(event) = self.pomodoro.tick(&self.config) {
+            match event {
+                pomodoro::Event::FocusComplete => self.notify(
+                    "Focus complete",
+                    &format!(
+                        "Nice work. Take a {} minute break.",
+                        self.config.pomodoro_break_min
+                    ),
+                ),
+                pomodoro::Event::BreakComplete => self.notify(
+                    "Break complete",
+                    &format!(
+                        "Ready for another {} minute focus session?",
+                        self.config.pomodoro_focus_min
+                    ),
+                ),
+            }
+        }
+        if self.popup_visible && self.panel_tab == ui::PanelTab::Pomodoro {
+            self.render_popup();
+        }
+    }
+
+    fn on_tray(&mut self, lparam: LPARAM) {
+        let event = lparam.0 as u32 & 0xFFFF;
+        match event {
+            WM_LBUTTONUP | WM_LBUTTONDBLCLK => {
+                self.panel_tab = ui::PanelTab::Overview;
+                self.show_popup(true);
+            }
+            NIN_BALLOONUSERCLICK => {
+                self.panel_tab = ui::PanelTab::Pomodoro;
+                self.show_popup(true);
+            }
+            WM_RBUTTONUP => self.show_menu(),
+            _ => {}
+        }
+    }
+
+    fn add_tray_icon(&mut self) {
+        if self.tray_added {
+            return;
+        }
+        let Some(icon) = self.tray_icon else {
+            return;
+        };
+        let mut data = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: self.hidden,
+            uID: TRAY_ID,
+            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP,
+            uCallbackMessage: WM_TRAY,
+            hIcon: icon,
+            ..Default::default()
+        };
+        fill_wide("Taskbar Stats", &mut data.szTip);
+        if unsafe { Shell_NotifyIconW(NIM_ADD, &data) }.as_bool() {
+            data.Anonymous.uVersion = 4;
+            let _ = unsafe { Shell_NotifyIconW(NIM_SETVERSION, &data) };
+            self.tray_added = true;
+            logging::write("tray icon added");
+        } else {
+            logging::write("tray icon add failed");
+        }
+    }
+
+    fn remove_tray_icon(&mut self) {
+        if !self.tray_added {
+            return;
+        }
+        let data = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: self.hidden,
+            uID: TRAY_ID,
+            ..Default::default()
+        };
+        let _ = unsafe { Shell_NotifyIconW(NIM_DELETE, &data) };
+        self.tray_added = false;
+    }
+
+    fn notify(&self, title: &str, body: &str) {
+        if !self.tray_added {
+            return;
+        }
+        let mut data = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: self.hidden,
+            uID: TRAY_ID,
+            uFlags: NIF_INFO,
+            dwInfoFlags: NIIF_INFO,
+            ..Default::default()
+        };
+        fill_wide(title, &mut data.szInfoTitle);
+        fill_wide(body, &mut data.szInfo);
+        data.Anonymous.uTimeout = 10_000;
+        logging::write(&format!("notification: {title} - {body}"));
+        let _ = unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) };
+    }
+
+    fn open_todo_dialog(&mut self) {
+        if let Some(dialog) = self.todo_dialog {
+            unsafe {
+                let _ = SetForegroundWindow(dialog);
+                let _ = SetFocus(self.todo_edit);
+            }
+            return;
+        }
+        self.pinned = true;
+        let dpi = self.taskbar.map(|tb| tb.dpi).unwrap_or(96).max(96);
+        let scale = dpi as f32 / 96.0;
+        let width = (ui::TODO_DIALOG_W * scale).round() as i32;
+        let height = (ui::TODO_DIALOG_H * scale).round() as i32;
+        let mut popup_rect = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(self.popup, &mut popup_rect);
+        }
+        let x = (popup_rect.left + popup_rect.right - width) / 2;
+        let y = (popup_rect.top + popup_rect.bottom - height) / 2;
+        let dialog = unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                TODO_CLASS,
+                w!("New task"),
+                WS_POPUP | WS_CLIPCHILDREN,
+                x,
+                y,
+                width,
+                height,
+                self.hidden,
+                HMENU::default(),
+                self.hinstance,
+                None,
+            )
+        };
+        let Ok(dialog) = dialog else {
+            logging::write("could not create todo dialog");
+            return;
+        };
+        let preference = DWMWCP_ROUND;
+        let border = DWMWA_COLOR_NONE;
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                dialog,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &preference as *const _ as *const c_void,
+                size_of::<i32>() as u32,
+            );
+            let _ = DwmSetWindowAttribute(
+                dialog,
+                DWMWA_BORDER_COLOR,
+                &border as *const _ as *const c_void,
+                size_of::<u32>() as u32,
+            );
+        }
+        let (edit_x, edit_y, edit_w, edit_h) = ui::todo_dialog_edit_rect();
+        let edit = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("EDIT"),
+                w!(""),
+                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(ES_AUTOHSCROLL as u32),
+                (edit_x * scale).round() as i32,
+                (edit_y * scale).round() as i32,
+                (edit_w * scale).round() as i32,
+                (edit_h * scale).round() as i32,
+                dialog,
+                HMENU(TODO_EDIT_ID as *mut c_void),
+                self.hinstance,
+                None,
+            )
+        };
+        let Ok(edit) = edit else {
+            unsafe {
+                let _ = DestroyWindow(dialog);
+            }
+            logging::write("could not create todo input");
+            return;
+        };
+        let colors = ui::todo_dialog_colors(&self.config, self.light);
+        let font = unsafe {
+            CreateFontW(
+                -(14.0 * scale * self.config.font_scale as f32).round() as i32,
+                0,
+                0,
+                0,
+                FW_NORMAL.0 as i32,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET.0 as u32,
+                OUT_DEFAULT_PRECIS.0 as u32,
+                CLIP_DEFAULT_PRECIS.0 as u32,
+                CLEARTYPE_QUALITY.0 as u32,
+                (DEFAULT_PITCH.0 | FF_DONTCARE.0) as u32,
+                w!("Segoe UI"),
+            )
+        };
+        let brush = unsafe { CreateSolidBrush(COLORREF(colors.field)) };
+        self.todo_font = font;
+        self.todo_brush = brush;
+        self.todo_dpi = dpi;
+        self.todo_hover = None;
+        self.todo_tracking = false;
+        self.todo_dialog = Some(dialog);
+        self.todo_edit = edit;
+        unsafe {
+            SendMessageW(edit, WM_SETFONT, WPARAM(font.0 as usize), LPARAM(1));
+            let previous =
+                SetWindowLongPtrW(edit, GWLP_WNDPROC, todo_edit_proc as *const () as isize);
+            TODO_EDIT_PROC.with(|cell| cell.set(previous));
+            let _ = ShowWindow(dialog, SW_SHOW);
+            let _ = SetForegroundWindow(dialog);
+            let _ = SetFocus(edit);
+        }
+    }
+
+    fn commit_todo_dialog(&mut self) {
+        if self.todo_dialog.is_none() {
+            return;
+        }
+        let mut buffer = [0u16; 256];
+        let length = unsafe { GetWindowTextW(self.todo_edit, &mut buffer) } as usize;
+        let text = String::from_utf16_lossy(&buffer[..length.min(buffer.len())]);
+        let text = text.trim();
+        if !text.is_empty() {
+            self.config.todos.push(TodoItem {
+                text: text.to_string(),
+                done: false,
+            });
+            self.config.validate();
+            self.todo_page = self
+                .config
+                .todos
+                .len()
+                .saturating_sub(1)
+                .div_euclid(ui::TODO_ROWS);
+            if let Err(error) = self.config.save(&self.config_path) {
+                logging::write(&format!("config save failed: {error}"));
+            }
+            self.render_popup();
+        }
+        self.close_todo_dialog();
+    }
+
+    fn close_todo_dialog(&mut self) {
+        if let Some(dialog) = self.todo_dialog.take() {
+            unsafe {
+                let _ = DestroyWindow(dialog);
+            }
+        }
+    }
+
+    fn paint_todo(&mut self, hwnd: HWND) {
+        let mut paint = PAINTSTRUCT::default();
+        unsafe {
+            let hdc = BeginPaint(hwnd, &mut paint);
+            let mut rect = RECT::default();
+            let _ = GetClientRect(hwnd, &mut rect);
+            if self
+                .todo_renderer
+                .resize(rect.right.max(1), rect.bottom.max(1), self.todo_dpi)
+                .is_ok()
+            {
+                self.todo_renderer
+                    .set_font_scale(self.config.font_scale as f32);
+                if self.todo_renderer.begin().is_ok() {
+                    ui::draw_todo_dialog(
+                        &self.todo_renderer,
+                        &self.config,
+                        self.light,
+                        self.todo_hover,
+                    );
+                    let _ = self.todo_renderer.end_draw();
+                    self.todo_renderer.blit(hdc);
+                }
+            }
+            let _ = EndPaint(hwnd, &paint);
+        }
+    }
+
+    fn update_todo_hover(&mut self, hwnd: HWND, lparam: LPARAM) {
+        let x = (lparam.0 & 0xFFFF) as i16 as f32 * 96.0 / self.todo_dpi as f32;
+        let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32 * 96.0 / self.todo_dpi as f32;
+        let hover = ui::todo_dialog_hit(x, y);
+        if hover != self.todo_hover {
+            self.todo_hover = hover;
+            unsafe {
+                let _ = InvalidateRect(hwnd, None, false);
+            }
+        }
+    }
+
+    fn on_todo(&mut self, hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        match msg {
+            WM_PAINT => {
+                self.paint_todo(hwnd);
+                LRESULT(0)
+            }
+            WM_ERASEBKGND => LRESULT(1),
+            WM_CTLCOLOREDIT => {
+                let colors = ui::todo_dialog_colors(&self.config, self.light);
+                unsafe {
+                    let hdc = HDC(wparam.0 as *mut c_void);
+                    SetBkColor(hdc, COLORREF(colors.field));
+                    SetTextColor(hdc, COLORREF(colors.text));
+                }
+                LRESULT(self.todo_brush.0 as isize)
+            }
+            WM_MOUSEMOVE => {
+                self.update_todo_hover(hwnd, lparam);
+                if !self.todo_tracking {
+                    let mut track = TRACKMOUSEEVENT {
+                        cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: hwnd,
+                        ..Default::default()
+                    };
+                    unsafe {
+                        let _ = TrackMouseEvent(&mut track);
+                    }
+                    self.todo_tracking = true;
+                }
+                LRESULT(0)
+            }
+            WM_MOUSELEAVE_MSG => {
+                self.todo_tracking = false;
+                if self.todo_hover.take().is_some() {
+                    unsafe {
+                        let _ = InvalidateRect(hwnd, None, false);
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_LBUTTONUP => {
+                self.update_todo_hover(hwnd, lparam);
+                match self.todo_hover {
+                    Some(ui::TodoDialogButton::Add) => self.commit_todo_dialog(),
+                    Some(ui::TodoDialogButton::Cancel) => self.close_todo_dialog(),
+                    None => {}
+                }
+                LRESULT(0)
+            }
+            WM_TODO_ADD => {
+                self.commit_todo_dialog();
+                LRESULT(0)
+            }
+            WM_TODO_CANCEL | WM_CLOSE => {
+                self.close_todo_dialog();
+                LRESULT(0)
+            }
+            WM_KEYDOWN if wparam.0 as u16 == VK_ESCAPE.0 => {
+                self.close_todo_dialog();
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                if self.todo_dialog == Some(hwnd) {
+                    self.todo_dialog = None;
+                    self.todo_edit = HWND::default();
+                    self.todo_hover = None;
+                    self.todo_tracking = false;
+                    unsafe {
+                        if !self.todo_font.is_invalid() {
+                            let _ = DeleteObject(HGDIOBJ(self.todo_font.0));
+                        }
+                        if !self.todo_brush.is_invalid() {
+                            let _ = DeleteObject(HGDIOBJ(self.todo_brush.0));
+                        }
+                    }
+                    self.todo_font = HFONT::default();
+                    self.todo_brush = HBRUSH::default();
+                }
+                LRESULT(0)
+            }
+            _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
         }
     }
 
@@ -949,6 +1416,18 @@ impl App {
                 self.switch_tab(ui::PanelTab::Appearance);
                 return;
             }
+            ui::PanelAction::TabPomodoro => {
+                self.switch_tab(ui::PanelTab::Pomodoro);
+                return;
+            }
+            ui::PanelAction::TabTodo => {
+                self.switch_tab(ui::PanelTab::Todo);
+                return;
+            }
+            ui::PanelAction::TodoAdd => {
+                self.open_todo_dialog();
+                return;
+            }
             _ => {}
         }
 
@@ -990,13 +1469,56 @@ impl App {
             ui::PanelAction::WidgetCpu => toggle_widget(&mut self.config, "cpu"),
             ui::PanelAction::WidgetMem => toggle_widget(&mut self.config, "mem"),
             ui::PanelAction::WidgetDisk => toggle_widget(&mut self.config, "disk"),
+            ui::PanelAction::WidgetNet => toggle_widget(&mut self.config, "net"),
             ui::PanelAction::Gpu(index) => {
                 let names = self.sampler.gpu_names();
                 if let Some(name) = names.get(index) {
                     toggle_gpu(&mut self.config, name, &names);
                 }
             }
-            ui::PanelAction::Reset => self.config = Config::default(),
+            ui::PanelAction::LaunchAtStartup => {
+                self.config.launch_at_startup = !self.config.launch_at_startup;
+            }
+            ui::PanelAction::FontCompact => self.config.font_scale = 0.9,
+            ui::PanelAction::FontNormal => self.config.font_scale = 1.0,
+            ui::PanelAction::FontLarge => self.config.font_scale = 1.15,
+            ui::PanelAction::PomodoroToggle => self.pomodoro.toggle(),
+            ui::PanelAction::PomodoroReset => self.pomodoro.reset(&self.config),
+            ui::PanelAction::PomodoroSkip => self.pomodoro.skip(&self.config),
+            ui::PanelAction::PomodoroFocus25 => self.config.pomodoro_focus_min = 25,
+            ui::PanelAction::PomodoroFocus50 => self.config.pomodoro_focus_min = 50,
+            ui::PanelAction::PomodoroBreak5 => self.config.pomodoro_break_min = 5,
+            ui::PanelAction::PomodoroBreak10 => self.config.pomodoro_break_min = 10,
+            ui::PanelAction::TodoPrevPage => {
+                self.todo_page = self.todo_page.saturating_sub(1);
+            }
+            ui::PanelAction::TodoNextPage => {
+                let pages = self.config.todos.len().div_ceil(ui::TODO_ROWS).max(1);
+                self.todo_page = (self.todo_page + 1).min(pages - 1);
+            }
+            ui::PanelAction::TodoToggle(row) => {
+                let index = self.todo_page * ui::TODO_ROWS + row;
+                if let Some(todo) = self.config.todos.get_mut(index) {
+                    todo.done = !todo.done;
+                }
+            }
+            ui::PanelAction::TodoDelete(row) => {
+                let index = self.todo_page * ui::TODO_ROWS + row;
+                if index < self.config.todos.len() {
+                    self.config.todos.remove(index);
+                    let pages = self.config.todos.len().div_ceil(ui::TODO_ROWS).max(1);
+                    self.todo_page = self.todo_page.min(pages - 1);
+                }
+            }
+            ui::PanelAction::TodoClearDone => {
+                self.config.todos.retain(|todo| !todo.done);
+                let pages = self.config.todos.len().div_ceil(ui::TODO_ROWS).max(1);
+                self.todo_page = self.todo_page.min(pages - 1);
+            }
+            ui::PanelAction::Reset => {
+                self.config = Config::default();
+                self.todo_page = 0;
+            }
             _ => {}
         }
 
@@ -1005,6 +1527,16 @@ impl App {
             logging::write(&format!("config save failed: {error}"));
         }
         self.refresh_theme();
+        if before.launch_at_startup != self.config.launch_at_startup
+            && !sync_startup(self.config.launch_at_startup)
+        {
+            logging::write("could not update startup registration");
+        }
+        if before.pomodoro_focus_min != self.config.pomodoro_focus_min
+            || before.pomodoro_break_min != self.config.pomodoro_break_min
+        {
+            self.pomodoro.apply_duration(&self.config);
+        }
         if before.update_ms != self.config.update_ms {
             unsafe {
                 SetTimer(self.hidden, TIMER_UPDATE, self.config.update_ms, None);
@@ -1014,7 +1546,8 @@ impl App {
         let layout_changed = before.position != self.config.position
             || before.offset != self.config.offset
             || before.widgets != self.config.widgets
-            || before.gpu_visible != self.config.gpu_visible;
+            || before.gpu_visible != self.config.gpu_visible
+            || before.font_scale != self.config.font_scale;
         let theme_changed = before.theme != self.config.theme || before.style != self.config.style;
         self.refresh_snapshot();
         if layout_changed {
@@ -1057,7 +1590,10 @@ impl App {
                     self.show_popup(true);
                 }
                 2 => self.reload_config(),
-                3 => PostQuitMessage(0),
+                3 => {
+                    self.remove_tray_icon();
+                    PostQuitMessage(0);
+                }
                 _ => {}
             }
         }
@@ -1068,6 +1604,10 @@ impl App {
         self.config = config;
         self.config_path = path;
         self.refresh_theme();
+        self.pomodoro.apply_duration(&self.config);
+        let pages = self.config.todos.len().div_ceil(ui::TODO_ROWS).max(1);
+        self.todo_page = self.todo_page.min(pages - 1);
+        let _ = sync_startup(self.config.launch_at_startup);
         self.position_strip();
         unsafe {
             SetTimer(self.hidden, TIMER_UPDATE, self.config.update_ms, None);
@@ -1083,7 +1623,7 @@ fn client_point(lparam: LPARAM) -> (f32, f32) {
 }
 
 fn ordered_widgets(widgets: &[String]) -> Vec<String> {
-    let order = ["cpu", "gpu", "mem", "disk"];
+    let order = ["cpu", "gpu", "mem", "disk", "net"];
     let mut next = Vec::new();
     for item in order {
         if widgets.iter().any(|widget| widget == item) {
@@ -1142,7 +1682,7 @@ fn toggle_widget(config: &mut Config, widget: &str) {
         widgets.push(widget.to_string());
     }
 
-    let order = ["cpu", "gpu", "mem", "disk"];
+    let order = ["cpu", "gpu", "mem", "disk", "net"];
     let mut next = Vec::new();
     for item in order {
         if widgets.iter().any(|widget| widget == item) {
@@ -1196,7 +1736,7 @@ fn animations_enabled() -> bool {
 fn register_classes(hinstance: HINSTANCE) {
     let cursor = unsafe { LoadCursorW(HINSTANCE::default(), IDC_ARROW).unwrap_or_default() };
     type WndProc = unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT;
-    let classes: [(PCWSTR, WndProc, WNDCLASS_STYLES); 3] = [
+    let classes: [(PCWSTR, WndProc, WNDCLASS_STYLES); 4] = [
         (HOST_CLASS, host_wndproc as WndProc, WNDCLASS_STYLES(0)),
         (
             STRIP_CLASS,
@@ -1208,6 +1748,7 @@ fn register_classes(hinstance: HINSTANCE) {
             popup_wndproc as WndProc,
             CS_HREDRAW | CS_VREDRAW,
         ),
+        (TODO_CLASS, todo_wndproc as WndProc, CS_HREDRAW | CS_VREDRAW),
     ];
     for (class, proc, style) in classes {
         let window_class = WNDCLASSEXW {
@@ -1254,6 +1795,58 @@ fn create_window(
     }
 }
 
+fn fill_wide<const N: usize>(text: &str, buffer: &mut [u16; N]) {
+    let mut index = 0;
+    for unit in text.encode_utf16().take(N.saturating_sub(1)) {
+        buffer[index] = unit;
+        index += 1;
+    }
+    if index < N {
+        buffer[index] = 0;
+    }
+}
+
+#[allow(clippy::manual_dangling_ptr)]
+fn load_app_icon(hinstance: HINSTANCE) -> Option<HICON> {
+    unsafe {
+        LoadIconW(hinstance, PCWSTR(1 as *const u16))
+            .ok()
+            .or_else(|| LoadIconW(HINSTANCE::default(), IDI_APPLICATION).ok())
+    }
+}
+
+fn sync_startup(enabled: bool) -> bool {
+    unsafe {
+        let mut key = windows::Win32::System::Registry::HKEY::default();
+        let status = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            w!(r"Software\Microsoft\Windows\CurrentVersion\Run"),
+            0,
+            KEY_SET_VALUE,
+            &mut key,
+        );
+        if status.0 != 0 {
+            return !enabled;
+        }
+        let result = if enabled {
+            let Ok(executable) = std::env::current_exe() else {
+                let _ = RegCloseKey(key);
+                return false;
+            };
+            let value = format!("\"{}\"", executable.display());
+            let mut wide: Vec<u16> = value.encode_utf16().collect();
+            wide.push(0);
+            let bytes = std::slice::from_raw_parts(wide.as_ptr().cast::<u8>(), wide.len() * 2);
+            RegSetValueExW(key, w!("TaskbarStats"), 0, REG_SZ, Some(bytes)).0 == 0
+        } else {
+            let status = RegDeleteValueW(key, w!("TaskbarStats"));
+            status.0 == 0 || status.0 == 2
+        };
+        let _ = RegCloseKey(key);
+        result
+    }
+}
+
 unsafe extern "system" fn host_wndproc(
     hwnd: HWND,
     msg: u32,
@@ -1296,6 +1889,51 @@ unsafe extern "system" fn popup_wndproc(
         if let Ok(mut guard) = cell.try_borrow_mut() {
             if let Some(app) = guard.as_mut() {
                 return app.on_popup(hwnd, msg, wparam, lparam);
+            }
+        }
+        unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+    })
+}
+
+unsafe extern "system" fn todo_edit_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if msg == WM_CHAR && matches!(wparam.0 as u16, 13 | 27) {
+        return LRESULT(0);
+    }
+    if msg == WM_KEYDOWN {
+        let key = wparam.0 as u16;
+        if key == VK_RETURN.0 {
+            if let Ok(parent) = unsafe { GetParent(hwnd) } {
+                let _ = unsafe { PostMessageW(parent, WM_TODO_ADD, WPARAM(0), LPARAM(0)) };
+            }
+            return LRESULT(0);
+        }
+        if key == VK_ESCAPE.0 {
+            if let Ok(parent) = unsafe { GetParent(hwnd) } {
+                let _ = unsafe { PostMessageW(parent, WM_TODO_CANCEL, WPARAM(0), LPARAM(0)) };
+            }
+            return LRESULT(0);
+        }
+    }
+    let previous = TODO_EDIT_PROC.with(|cell| cell.get());
+    let proc: WNDPROC = unsafe { std::mem::transmute(previous) };
+    unsafe { CallWindowProcW(proc, hwnd, msg, wparam, lparam) }
+}
+
+unsafe extern "system" fn todo_wndproc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    APP.with(|cell| {
+        if let Ok(mut guard) = cell.try_borrow_mut() {
+            if let Some(app) = guard.as_mut() {
+                return app.on_todo(hwnd, msg, wparam, lparam);
             }
         }
         unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }

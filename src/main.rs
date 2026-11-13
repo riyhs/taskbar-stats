@@ -7,6 +7,7 @@ mod disk;
 mod gpu;
 mod logging;
 mod metrics;
+mod pomodoro;
 mod render;
 mod taskbar;
 mod ui;
