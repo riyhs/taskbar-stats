@@ -8,7 +8,17 @@ Releases are built and published by `.github/workflows/release.yml` on
 Use `MAJOR.MINOR.PATCH` for the Rust package version and a matching `v` tag.
 
 1. Update `version` in `Cargo.toml`.
-2. Run the local checks:
+2. Refresh the lockfile so `--locked` builds accept the new version:
+
+   ```bat
+   cargo update -p taskbar-stats --offline
+   ```
+
+   This only rewrites the `taskbar-stats` entry in `Cargo.lock`. Skipping it
+   fails the release build with "cannot update the lock file because
+   `--locked` was passed".
+
+3. Run the local checks:
 
    ```bat
    scripts\build.bat --release
@@ -17,8 +27,8 @@ Use `MAJOR.MINOR.PATCH` for the Rust package version and a matching `v` tag.
    cargo test --all-targets
    ```
 
-3. Commit the version bump.
-4. Create and push an annotated tag:
+4. Commit the version bump and the lockfile together.
+5. Create and push an annotated tag:
 
    ```bat
    git tag -a v0.1.0 -m "Taskbar Stats v0.1.0"
