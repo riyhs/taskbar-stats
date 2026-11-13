@@ -105,6 +105,13 @@ The app exits through the strip context menu: right-click the strip and choose
     elevation and do not leave a stale startup entry on uninstall.
 12. Pomodoro notifications use the tray icon; do not replace them with a
     blocking dialog or a top-level notification window.
+13. Never cache DPI across a display change. On `WM_DISPLAYCHANGE`,
+    `WM_SETTINGCHANGE`/`SPI_SETWORKAREA`, `WM_DPICHANGED`, and
+    `WM_DPICHANGED_AFTERPARENT`, re-read `Shell_TrayWnd` through
+    `taskbar::find()` before laying anything out. The strip is a child window
+    and only receives `WM_DPICHANGED_AFTERPARENT`; the popup is top-level and
+    receives both. `App::popup_dpi` queries `GetDpiForWindow` instead of
+    remembering a value.
 
 ## UI rules
 

@@ -24,6 +24,7 @@ use windows::Win32::System::Registry::{
     KEY_SET_VALUE, REG_SZ, RRF_RT_REG_DWORD,
 };
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_ESCAPE,
     VK_RETURN,
@@ -54,12 +55,14 @@ const TIMER_HOVER: usize = 3;
 const TIMER_HIDE: usize = 4;
 const TIMER_ANIM: usize = 5;
 const TIMER_POMODORO: usize = 6;
+const TIMER_DISPLAY: usize = 7;
 const WM_TRAY: u32 = WM_APP + 1;
 const NIN_BALLOONUSERCLICK: u32 = 0x0400 + 5;
 const TRAY_ID: u32 = 1;
 const TODO_EDIT_ID: usize = 100;
 const WM_TODO_ADD: u32 = WM_APP + 2;
 const WM_TODO_CANCEL: u32 = WM_APP + 3;
+const WM_DISPLAY_SYNC: u32 = WM_APP + 4;
 const PANEL_SHOW_MS: u64 = 140;
 const PANEL_HIDE_MS: u64 = 110;
 
@@ -273,6 +276,12 @@ impl App {
             self.on_tray(lparam);
             return LRESULT(0);
         }
+        if msg == WM_DISPLAY_SYNC {
+            self.sync_taskbar();
+            self.refresh_layout();
+            self.render_strip();
+            return LRESULT(0);
+        }
         match msg {
             WM_TIMER => {
                 match wparam.0 {
@@ -280,18 +289,40 @@ impl App {
                     TIMER_ATTACH => self.reattach(),
                     TIMER_ANIM => self.tick_fade(),
                     TIMER_POMODORO => self.tick_pomodoro(),
+                    TIMER_DISPLAY => {
+                        unsafe {
+                            let _ = KillTimer(self.hidden, TIMER_DISPLAY);
+                        }
+                        if self.sync_taskbar() {
+                            self.refresh_layout();
+                            self.render_strip();
+                        }
+                    }
                     _ => {}
                 }
                 LRESULT(0)
             }
-            WM_DISPLAYCHANGE | WM_DPICHANGED => {
-                self.taskbar = taskbar::find();
-                self.position_strip();
+            WM_DPICHANGED | WM_DPICHANGED_AFTERPARENT => {
+                self.sync_taskbar();
+                self.refresh_layout();
                 self.render_strip();
+                LRESULT(0)
+            }
+            WM_DISPLAYCHANGE => {
+                unsafe {
+                    let _ = PostMessageW(self.hidden, WM_DISPLAY_SYNC, WPARAM(0), LPARAM(0));
+                }
+                self.schedule_display_retry();
                 LRESULT(0)
             }
             WM_SETTINGCHANGE | WM_THEMECHANGED => {
                 self.refresh_theme();
+                if wparam.0 as u32 == SPI_SETWORKAREA.0 {
+                    unsafe {
+                        let _ = PostMessageW(self.hidden, WM_DISPLAY_SYNC, WPARAM(0), LPARAM(0));
+                    }
+                    self.schedule_display_retry();
+                }
                 self.render_strip();
                 if self.popup_visible {
                     self.render_popup();
@@ -420,9 +451,11 @@ impl App {
                 LRESULT(0)
             }
             WM_ERASEBKGND => LRESULT(1),
-            WM_DISPLAYCHANGE | WM_SETTINGCHANGE | WM_DPICHANGED => {
-                self.position_strip();
-                self.render_strip();
+            WM_DISPLAYCHANGE | WM_SETTINGCHANGE | WM_DPICHANGED | WM_DPICHANGED_AFTERPARENT => {
+                unsafe {
+                    let _ = PostMessageW(self.hidden, WM_DISPLAY_SYNC, WPARAM(0), LPARAM(0));
+                }
+                self.schedule_display_retry();
                 LRESULT(0)
             }
             _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
@@ -493,13 +526,20 @@ impl App {
                 LRESULT(0)
             }
             WM_ERASEBKGND => LRESULT(1),
+            WM_DPICHANGED | WM_DPICHANGED_AFTERPARENT => {
+                unsafe {
+                    let _ = PostMessageW(self.hidden, WM_DISPLAY_SYNC, WPARAM(0), LPARAM(0));
+                }
+                self.schedule_display_retry();
+                LRESULT(0)
+            }
             _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
         }
     }
 
     fn panel_point(&self, lparam: LPARAM) -> (f32, f32) {
         let (x, y) = client_point(lparam);
-        let dpi = self.taskbar.map(|tb| tb.dpi).unwrap_or(96).max(96) as f32;
+        let dpi = self.popup_dpi().max(96) as f32;
         let scale = 96.0 / dpi;
         (x * scale - ui::PANEL_MARGIN, y * scale)
     }
@@ -574,15 +614,77 @@ impl App {
     }
 
     fn sample_and_render(&mut self) {
+        let changed = self.sync_taskbar();
         self.refresh_snapshot();
+        if changed {
+            self.refresh_layout();
+        }
         self.render_strip();
         if self.popup_visible {
             self.render_popup();
         }
     }
 
+    fn sync_taskbar(&mut self) -> bool {
+        let found = taskbar::find();
+        let changed = match (self.taskbar, found) {
+            (Some(current), Some(found)) => {
+                current.hwnd != found.hwnd
+                    || current.dpi != found.dpi
+                    || current.width != found.width
+                    || current.height != found.height
+            }
+            (None, None) => false,
+            _ => true,
+        };
+        self.taskbar = found;
+        if changed {
+            if let Some(tb) = self.taskbar {
+                logging::write(&format!(
+                    "taskbar changed: hwnd={:?} w={} h={} dpi={}",
+                    tb.hwnd, tb.width, tb.height, tb.dpi
+                ));
+            } else {
+                logging::write("taskbar lost");
+            }
+        }
+        changed
+    }
+
+    fn schedule_display_retry(&self) {
+        unsafe {
+            SetTimer(self.hidden, TIMER_DISPLAY, 700, None);
+        }
+    }
+
+    fn refresh_layout(&mut self) {
+        self.backdrop = None;
+        self.close_todo_dialog();
+        let Some(tb) = self.taskbar else {
+            self.reattach();
+            return;
+        };
+        let attached = unsafe {
+            IsWindow(self.strip).as_bool()
+                && GetParent(self.strip)
+                    .map(|parent| parent == tb.hwnd)
+                    .unwrap_or(false)
+        };
+        if !attached {
+            self.reattach();
+            return;
+        }
+        self.position_strip();
+        if self.popup_visible {
+            self.show_popup(self.pinned);
+        }
+    }
+
     fn render_strip(&mut self) {
         if self.strip_w_px <= 0 || self.strip_h_px <= 0 {
+            return;
+        }
+        if !unsafe { IsWindow(self.strip).as_bool() } {
             return;
         }
         if self
@@ -610,8 +712,7 @@ impl App {
     }
 
     fn render_popup(&mut self) {
-        let Some(tb) = self.taskbar else { return };
-        let dpi = tb.dpi.max(96);
+        let dpi = self.popup_dpi().max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
         let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
             * dpi as f32
@@ -673,7 +774,18 @@ impl App {
         }
     }
 
+    fn popup_dpi(&self) -> u32 {
+        for window in [self.strip, self.popup] {
+            let scale = unsafe { GetDpiForWindow(window) };
+            if scale > 0 {
+                return scale;
+            }
+        }
+        self.taskbar.map(|tb| tb.dpi).unwrap_or(96)
+    }
+
     fn show_popup(&mut self, pin: bool) {
+        self.sync_taskbar();
         let Some(tb) = self.taskbar else { return };
         let was_visible = self.popup_visible;
         self.cancel_fade();
@@ -694,7 +806,7 @@ impl App {
             }
             self.hide_timer = false;
         }
-        let dpi = tb.dpi.max(96);
+        let dpi = self.popup_dpi().max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
         let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
             * dpi as f32

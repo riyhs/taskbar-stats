@@ -210,9 +210,36 @@ configuration model. The config file is an implementation detail;
 manual editing is not required.
 
 `TaskbarCreated` triggers reattachment and tray icon re-registration after
-Explorer restarts. Display, DPI, theme, and settings changes trigger
-re-placement and redraw. Switching tabs reruns `show_popup`, preserving the
-current backdrop so the panel height changes without a hide/flash cycle.
+Explorer restarts. Switching tabs reruns `show_popup`, preserving the current
+backdrop so the panel height changes without a hide/flash cycle.
+
+Display and DPI changes funnel through one path. The strip is a child of
+`Shell_TrayWnd`, so it receives `WM_DPICHANGED_AFTERPARENT` rather than
+`WM_DPICHANGED`; the popup is top-level and receives both. Every window
+forwards those messages, plus `WM_DISPLAYCHANGE` and
+`WM_SETTINGCHANGE`/`SPI_SETWORKAREA`, to the hidden host window as
+`WM_DISPLAY_SYNC`. The host then:
+
+1. Re-reads `Shell_TrayWnd` through `taskbar::find()` and stores the new
+   window handle, size, and DPI. The cached `Taskbar` is the only DPI source
+   for strip placement, so it must be refreshed rather than reused.
+2. Drops the cached blurred backdrop, because it was captured at the old size
+   and scale.
+3. Re-attaches the strip if `Shell_TrayWnd` was recreated, otherwise re-runs
+   `position_strip()`.
+4. Reopens the popup at the new size via `show_popup`, which recomputes width
+   and height from the window DPI.
+
+`App::popup_dpi` queries `GetDpiForWindow` on the strip first and the popup
+second, falling back to the cached taskbar DPI. The strip is preferred because
+it always belongs to the taskbar's monitor, while a popup that has not been
+repositioned yet still reports its previous monitor. Nothing caches DPI across
+a display change.
+
+`WM_DISPLAYCHANGE` also arms a 700 ms `TIMER_DISPLAY` retry, because Explorer
+can move or recreate the taskbar after the message arrives. The one-second
+sample timer calls `sync_taskbar()` as well, so a display change that arrives
+while the taskbar is briefly missing still self-heals on the next tick.
 
 ## Sampling
 
