@@ -56,15 +56,32 @@ without being clipped by the taskbar parent.
 
 ## Placement
 
+`src/taskbar.rs` enumerates every visible taskbar. Windows exposes the primary
+monitor's bar as `Shell_TrayWnd` and each secondary monitor's as
+`Shell_SecondaryTrayWnd`, so `FindWindowW("Shell_TrayWnd")` alone can never
+reach a secondary display. `taskbar::monitors()` walks `EnumWindows`, maps each
+bar to its monitor through `MonitorFromWindow` and `GetMonitorInfoW`, numbers
+them from the `DISPLAY<n>` device name, and sorts them left to right.
+`taskbar::find(monitor)` picks the primary bar for `0` and the bar whose device
+number matches otherwise, falling back to the primary.
+
+`config.monitor` stores the choice: `0` is Auto (follow the primary taskbar) and
+`1..=n` is the device number shown in the MONITOR row of Settings. The row lists
+Auto plus one chip per detected display, labelled with its resolution. Changing
+the selection re-enumerates, re-resolves the taskbar, destroys and re-attaches
+the strip, and re-opens the popup, so the widget moves to the chosen display
+without a restart.
+
 `src/taskbar.rs` locates:
 
-- `Shell_TrayWnd` and its client rectangle,
+- the bar's client rectangle,
 - the taskbar DPI,
-- `TrayNotifyWnd` and its left edge.
+- `TrayNotifyWnd` and its left edge (secondary bars have no tray, so
+  `tray_left` is `None` and placement falls back to the full width).
 
 Strip placement:
 
-- Enumerate visible child windows of `Shell_TrayWnd`.
+- Enumerate visible child windows of the selected taskbar.
 - Exclude the strip itself, `TrayNotifyWnd`, and full-width composition surfaces.
 - Merge the remaining rectangles, inflate them by a 6 px collision gap, and
   compute free gaps.

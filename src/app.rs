@@ -109,6 +109,7 @@ pub fn run() -> Result<()> {
         )?;
 
         let (config, config_path) = Config::load();
+        let monitor = config.monitor;
         let taskbar_created = RegisterWindowMessageW(w!("TaskbarCreated"));
         let app = App {
             hinstance,
@@ -118,7 +119,8 @@ pub fn run() -> Result<()> {
             pomodoro: Pomodoro::new(&config),
             config,
             config_path,
-            taskbar: taskbar::find(),
+            taskbar: taskbar::find(monitor),
+            monitors: taskbar::monitors(),
             sampler: Sampler::new(),
             snapshot: Snapshot::default(),
             strip_renderer: Renderer::new()?,
@@ -186,6 +188,7 @@ struct App {
     config: Config,
     config_path: PathBuf,
     taskbar: Option<Taskbar>,
+    monitors: Vec<taskbar::Monitor>,
     sampler: Sampler,
     snapshot: Snapshot,
     strip_renderer: Renderer,
@@ -244,7 +247,7 @@ impl App {
         }
         self.tray_icon = load_app_icon(self.hinstance);
         self.add_tray_icon();
-        self.taskbar = taskbar::find();
+        self.taskbar = taskbar::find(self.config.monitor);
         if let Some(tb) = self.taskbar {
             if taskbar::attach(self.strip, &tb) {
                 self.position_strip();
@@ -483,7 +486,7 @@ impl App {
                     x,
                     y,
                     self.sampler.gpu_names().len(),
-                    &ui::Layout::new(self.config.font_scale),
+                    &self.layout(),
                 );
                 if hover != self.panel_hover {
                     self.panel_hover = hover;
@@ -509,7 +512,7 @@ impl App {
                     x,
                     y,
                     self.sampler.gpu_names().len(),
-                    &ui::Layout::new(self.config.font_scale),
+                    &self.layout(),
                 ) {
                     self.handle_panel_action(action);
                 } else if self.pinned {
@@ -561,6 +564,10 @@ impl App {
         let mut snapshot = self.sampler.sample();
         self.filter_snapshot(&mut snapshot);
         self.snapshot = snapshot;
+    }
+
+    fn layout(&self) -> ui::Layout {
+        ui::Layout::new(self.config.font_scale, self.monitors.len())
     }
 
     fn visible_gpu_count(&self) -> usize {
@@ -626,7 +633,8 @@ impl App {
     }
 
     fn sync_taskbar(&mut self) -> bool {
-        let found = taskbar::find();
+        self.monitors = taskbar::monitors();
+        let found = taskbar::find(self.config.monitor);
         let changed = match (self.taskbar, found) {
             (Some(current), Some(found)) => {
                 current.hwnd != found.hwnd
@@ -714,10 +722,8 @@ impl App {
     fn render_popup(&mut self) {
         let dpi = self.popup_dpi().max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
-        let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
-            * dpi as f32
-            / 96.0)
-            .round() as i32;
+        let height =
+            (ui::panel_height(self.panel_tab, &self.layout()) * dpi as f32 / 96.0).round() as i32;
         if self.popup_renderer.resize(width, height, dpi).is_err() {
             return;
         }
@@ -732,12 +738,13 @@ impl App {
             &self.config,
             self.light,
             ui::PANEL_WIDTH,
-            ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale)),
+            ui::panel_height(self.panel_tab, &self.layout()),
             self.panel_tab,
             self.panel_hover,
             &self.pomodoro,
             self.todo_page,
             &gpu_names,
+            &self.monitors,
             self.backdrop.as_deref(),
             self.backdrop_w,
             self.backdrop_h,
@@ -808,10 +815,8 @@ impl App {
         }
         let dpi = self.popup_dpi().max(96);
         let width = ((ui::PANEL_WIDTH + 2.0 * ui::PANEL_MARGIN) * dpi as f32 / 96.0).round() as i32;
-        let height = (ui::panel_height(self.panel_tab, &ui::Layout::new(self.config.font_scale))
-            * dpi as f32
-            / 96.0)
-            .round() as i32;
+        let height =
+            (ui::panel_height(self.panel_tab, &self.layout()) * dpi as f32 / 96.0).round() as i32;
 
         let mut strip_rect = RECT::default();
         let mut taskbar_rect = RECT::default();
@@ -1453,7 +1458,7 @@ impl App {
     }
 
     fn reattach(&mut self) {
-        self.taskbar = taskbar::find();
+        self.taskbar = taskbar::find(self.config.monitor);
         let Some(tb) = self.taskbar else {
             unsafe {
                 let _ = ShowWindow(self.strip, SW_HIDE);
@@ -1588,6 +1593,9 @@ impl App {
                     toggle_gpu(&mut self.config, name, &names);
                 }
             }
+            ui::PanelAction::Monitor(index) => {
+                self.config.monitor = if index == 0 { 0 } else { index as u32 };
+            }
             ui::PanelAction::LaunchAtStartup => {
                 self.config.launch_at_startup = !self.config.launch_at_startup;
             }
@@ -1655,11 +1663,18 @@ impl App {
             }
         }
 
+        if before.monitor != self.config.monitor {
+            self.monitors = taskbar::monitors();
+            self.taskbar = taskbar::find(self.config.monitor);
+            self.reattach();
+        }
+
         let layout_changed = before.position != self.config.position
             || before.offset != self.config.offset
             || before.widgets != self.config.widgets
             || before.gpu_visible != self.config.gpu_visible
-            || before.font_scale != self.config.font_scale;
+            || before.font_scale != self.config.font_scale
+            || before.monitor != self.config.monitor;
         let theme_changed = before.theme != self.config.theme || before.style != self.config.style;
         self.refresh_snapshot();
         if layout_changed {
@@ -1720,6 +1735,9 @@ impl App {
         let pages = self.config.todos.len().div_ceil(ui::TODO_ROWS).max(1);
         self.todo_page = self.todo_page.min(pages - 1);
         let _ = sync_startup(self.config.launch_at_startup);
+        self.monitors = taskbar::monitors();
+        self.taskbar = taskbar::find(self.config.monitor);
+        self.reattach();
         self.position_strip();
         unsafe {
             SetTimer(self.hidden, TIMER_UPDATE, self.config.update_ms, None);

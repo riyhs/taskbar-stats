@@ -1,13 +1,36 @@
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT};
-use windows::Win32::Graphics::Gdi::MapWindowPoints;
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MapWindowPoints, MonitorFromWindow, MONITORINFO, MONITORINFOEXW,
+    MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, FindWindowExW, FindWindowW, GetClientRect, GetWindowRect, IsWindowVisible,
-    SetParent, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_CHILD, WS_CLIPSIBLINGS,
-    WS_EX_LAYERED, WS_EX_NOPARENTNOTIFY, WS_VISIBLE,
+    EnumChildWindows, EnumWindows, FindWindowExW, GetClassNameW, GetClientRect, GetWindowRect,
+    IsWindowVisible, SetParent, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_TOP,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_CHILD,
+    WS_CLIPSIBLINGS, WS_EX_LAYERED, WS_EX_NOPARENTNOTIFY, WS_VISIBLE,
 };
+
+const MONITORINFOF_PRIMARY: u32 = 1;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Monitor {
+    pub number: u32,
+    pub primary: bool,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl Monitor {
+    /// `Display 1 · 1920 x 1080`, shown on the monitor chips.
+    pub fn label(&self) -> String {
+        format!(
+            "Display {} \u{00b7} {} x {}",
+            self.number, self.width, self.height
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Taskbar {
@@ -19,9 +42,113 @@ pub struct Taskbar {
     tray: Option<HWND>,
 }
 
-pub fn find() -> Option<Taskbar> {
+struct Entry {
+    hwnd: HWND,
+    monitor: Monitor,
+    left: i32,
+    top: i32,
+}
+
+/// Every visible taskbar, ordered left to right. Windows exposes the primary
+/// bar as `Shell_TrayWnd` and each secondary monitor's as
+/// `Shell_SecondaryTrayWnd`.
+fn enumerate() -> Vec<Entry> {
+    let mut entries: Vec<Entry> = Vec::new();
     unsafe {
-        let hwnd = FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null()).ok()?;
+        let _ = EnumWindows(Some(entry_proc), LPARAM(&mut entries as *mut _ as isize));
+    }
+    entries.sort_unstable_by_key(|entry| (entry.left, entry.top));
+    for (index, entry) in entries.iter_mut().enumerate() {
+        if entry.monitor.number == 0 {
+            entry.monitor.number = index as u32 + 1;
+        }
+    }
+    entries
+}
+
+pub fn monitors() -> Vec<Monitor> {
+    enumerate().into_iter().map(|entry| entry.monitor).collect()
+}
+
+unsafe extern "system" fn entry_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let entries = unsafe { &mut *(lparam.0 as *mut Vec<Entry>) };
+    let class = unsafe { class_name(hwnd) };
+    if class != "Shell_TrayWnd" && class != "Shell_SecondaryTrayWnd" {
+        return BOOL(1);
+    }
+    if !unsafe { IsWindowVisible(hwnd).as_bool() } {
+        return BOOL(1);
+    }
+    let Some(info) = (unsafe { monitor_info(hwnd) }) else {
+        return BOOL(1);
+    };
+    entries.push(Entry {
+        hwnd,
+        left: info.monitorInfo.rcMonitor.left,
+        top: info.monitorInfo.rcMonitor.top,
+        monitor: Monitor {
+            number: device_number(&info),
+            primary: info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
+            width: info.monitorInfo.rcMonitor.right - info.monitorInfo.rcMonitor.left,
+            height: info.monitorInfo.rcMonitor.bottom - info.monitorInfo.rcMonitor.top,
+        },
+    });
+    BOOL(1)
+}
+
+unsafe fn class_name(hwnd: HWND) -> String {
+    let mut buffer = [0u16; 64];
+    let len = unsafe { GetClassNameW(hwnd, &mut buffer) };
+    String::from_utf16_lossy(&buffer[..len.max(0) as usize])
+}
+
+unsafe fn monitor_info(hwnd: HWND) -> Option<MONITORINFOEXW> {
+    let handle = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFOEXW::default();
+    info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
+    let ok =
+        unsafe { GetMonitorInfoW(handle, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO) };
+    ok.as_bool().then_some(info)
+}
+
+/// Reads `\.\DISPLAY2` and returns `2`.
+fn device_number(info: &MONITORINFOEXW) -> u32 {
+    info.szDevice
+        .iter()
+        .take_while(|unit| **unit != 0)
+        .map(|unit| char::from_u32(*unit as u32).unwrap_or(' '))
+        .collect::<String>()
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>()
+        .parse::<u32>()
+        .unwrap_or(0)
+}
+
+fn pick(monitor: u32) -> Option<HWND> {
+    let entries = enumerate();
+    if monitor == 0 {
+        return entries
+            .iter()
+            .find(|entry| entry.monitor.primary)
+            .or_else(|| entries.first())
+            .map(|entry| entry.hwnd);
+    }
+    entries
+        .iter()
+        .find(|entry| entry.monitor.number == monitor)
+        .or_else(|| entries.iter().find(|entry| entry.monitor.primary))
+        .or_else(|| entries.first())
+        .map(|entry| entry.hwnd)
+}
+
+pub fn find(monitor: u32) -> Option<Taskbar> {
+    unsafe {
+        let hwnd = pick(monitor)?;
         let mut rect = RECT::default();
         GetClientRect(hwnd, &mut rect).ok()?;
         let dpi = match GetDpiForWindow(hwnd) {
@@ -238,9 +365,4 @@ fn free_gaps(ranges: &[(i32, i32)], bound: i32) -> Vec<(i32, i32)> {
         gaps.push((cursor, bound));
     }
     gaps
-}
-
-#[allow(dead_code)]
-pub fn class_name() -> PCWSTR {
-    w!("Shell_TrayWnd")
 }

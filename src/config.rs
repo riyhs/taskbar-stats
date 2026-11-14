@@ -28,6 +28,8 @@ pub struct Config {
     pub pomodoro_break_min: u32,
     #[serde(default)]
     pub todos: Vec<TodoItem>,
+    #[serde(default)]
+    pub monitor: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -82,6 +84,7 @@ impl Default for Config {
             pomodoro_focus_min: default_focus_min(),
             pomodoro_break_min: default_break_min(),
             todos: Vec::new(),
+            monitor: 0,
         }
     }
 }
@@ -168,6 +171,9 @@ impl Config {
         self.font_scale = self.font_scale.clamp(0.85, 1.15);
         self.pomodoro_focus_min = self.pomodoro_focus_min.clamp(5, 120);
         self.pomodoro_break_min = self.pomodoro_break_min.clamp(1, 60);
+        if self.monitor > 16 {
+            self.monitor = 0;
+        }
         self.todos.retain(|todo| !todo.text.trim().is_empty());
         self.todos.truncate(20);
         for todo in &mut self.todos {
