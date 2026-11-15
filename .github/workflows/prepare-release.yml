@@ -47,8 +47,11 @@ jobs:
           INPUT_VERSION: ${{ github.event.inputs.version }}
           INPUT_BUMP: ${{ github.event.inputs.bump }}
         run: |
-          $subject = git log -1 --format=%s
-          $message = git log -1 --format=%B
+          # git prints one array element per line, and [regex] joins array
+          # elements with spaces, which destroys the line anchors. Force a
+          # single string with real newlines.
+          $subject = (git log -1 --format=%s) -join "`n"
+          $message = (git log -1 --format=%B) -join "`n"
           if ($env:EVENT -eq 'push' -and $subject -match '^chore\(release\):') {
             Write-Host "Skipping the release bump commit: $subject"
             "skip=true" >> $env:GITHUB_OUTPUT
