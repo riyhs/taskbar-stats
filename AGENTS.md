@@ -73,10 +73,10 @@ The app exits through the strip context menu: right-click the strip and choose
 | `scripts/release_notes.py` | Generates grouped release notes from conventional commits |
 | `scripts/bump_version.py` | Rewrites the package version in `Cargo.toml` and `Cargo.lock` |
 | `scripts/build-installer.ps1` | Inno Setup bootstrap and installer build |
-| `installer/taskbar-stats.iss` | Per-user installer and uninstaller definition |
+| `installer/taskbar-stats.iss` | Per-user installer, optional startup task, and uninstaller definition |
 | `.github/workflows/ci.yml` | Format, clippy, test, and release-build checks |
 | `.github/workflows/prepare-release.yml` | Bumps the version and pushes the tag after a merge to `main` |
-| `.github/workflows/release.yml` | Tag-driven Windows zip/exe/setup release with checksums |
+| `.github/workflows/release.yml` | Tag-driven Windows zip/portable/setup release with checksums |
 
 ## Invariants
 

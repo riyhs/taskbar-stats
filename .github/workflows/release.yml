@@ -41,7 +41,7 @@ jobs:
           }
           "VERSION=$version" >> $env:GITHUB_ENV
           "TASKBAR_STATS_VERSION=v$version" >> $env:GITHUB_ENV
-          "EXE=TaskbarStats-$version-windows-x64.exe" >> $env:GITHUB_ENV
+          "EXE=TaskbarStats-$version-windows-x64-portable.exe" >> $env:GITHUB_ENV
           "ZIP=TaskbarStats-$version-windows-x64.zip" >> $env:GITHUB_ENV
           "SETUP=TaskbarStats-$version-windows-x64-setup.exe" >> $env:GITHUB_ENV
           "SHA=TaskbarStats-$version-windows-x64.sha256" >> $env:GITHUB_ENV

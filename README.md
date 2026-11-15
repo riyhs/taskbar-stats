@@ -7,7 +7,7 @@
 <p align="center">A lightweight Windows system monitor that lives inside the taskbar: CPU, GPU, memory, disk, and network at a glance, plus a detail panel with a Pomodoro timer, a task list, and live appearance controls.</p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-0.2.0-5B9CFF?style=flat-square" alt="Version 0.2.0"></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-0.2.1-5B9CFF?style=flat-square" alt="Version 0.2.1"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/Rust-2021-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2021">
   <img src="https://img.shields.io/badge/admin-not%20required-22c55e?style=flat-square" alt="No administrator rights">
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/badge/Download%20for%20Windows-Taskbar%20Stats%200.2.0-e5484d?style=for-the-badge&logo=windows&logoColor=white" alt="Download Taskbar Stats for Windows" height="40"></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/Download%20for%20Windows-Taskbar%20Stats%200.2.1-e5484d?style=for-the-badge&logo=windows&logoColor=white" alt="Download Taskbar Stats for Windows" height="40"></a>
 </p>
 
 <p align="center">
@@ -77,14 +77,25 @@ taskbars and heavily customized Explorer replacements have not been verified.
 
 ## Install
 
+Two builds are published for every release. They run the same program; only the
+packaging differs.
+
+| Download | What it is |
+| --- | --- |
+| `TaskbarStats-<version>-windows-x64-setup.exe` | Installer. Per-user install, Start menu shortcut, uninstaller. **Recommended.** |
+| `TaskbarStats-<version>-windows-x64-portable.exe` | The bare executable. No install, no uninstaller, no shortcuts. |
+| `TaskbarStats-<version>-windows-x64.zip` | The same portable executable in a zip, for convenience. |
+
 ### Installer (recommended)
 
 1. Open the [latest release](../../releases/latest).
 2. Download `TaskbarStats-<version>-windows-x64-setup.exe`.
-3. Run the installer. It installs for the current user under
-   `%LOCALAPPDATA%\Programs\TaskbarStats`, adds a Start menu shortcut, and creates
-   an uninstall entry.
-4. Launch **Taskbar Stats** from the Start menu or the finish page.
+3. Run it. It installs for the current user under
+   `%LOCALAPPDATA%\Programs\TaskbarStats`, adds a Start menu shortcut, and
+   creates an uninstall entry.
+4. Leave **Start Taskbar Stats with Windows** ticked if you want the widget
+   available after every sign-in, then finish the wizard.
+5. Launch **Taskbar Stats** from the Start menu or the finish page.
 
 The installer is not code-signed yet, so Windows SmartScreen may warn. Use
 **More info → Run anyway** after verifying the download came from this
@@ -95,24 +106,27 @@ Uninstall**, or use **Start menu → Uninstall Taskbar Stats**. The uninstaller
 stops the app, removes its startup registration, shortcuts, and program files.
 Your configuration in `%APPDATA%\TaskbarStats` is kept unless you delete it.
 
-### Portable zip
+### Portable executable
 
 1. Open the [latest release](../../releases/latest).
-2. Download `TaskbarStats-<version>-windows-x64.zip`.
-3. Extract the zip anywhere you want to keep the app.
-4. Run `taskbar-stats.exe`.
+2. Download `TaskbarStats-<version>-windows-x64-portable.exe`, or the
+   `-windows-x64.zip` and extract it.
+3. Put it wherever you like and run it.
 
-The portable build has no installer. Delete the extracted folder when you no
-longer need it.
+Nothing is installed and no uninstaller is created. Delete the file when you no
+longer need it. Skip the portable build if you want Start with Windows to keep
+working after you move the file: the Run key stores an absolute path, so the
+toggle has to be turned off and on again after a move. The installer pins the
+path for you.
 
 ### Start with Windows
 
-Turn on **Start with Windows** in the **Settings** tab. This writes a per-user
-entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and points it at
-the running executable. Turn the chip off again to remove the entry.
+The **Start with Windows** chip in the **Settings** tab writes a per-user entry
+under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and points it at
+the running executable. Turning the chip off removes the entry.
 
-If you move a portable copy of the app, turn the toggle off and on again so the
-registry points at the new location.
+The installer writes the same entry when its startup task is left ticked, and the
+app adopts it on first launch, so both paths leave the toggle in the right state.
 
 ### Tray icon
 
@@ -240,10 +254,10 @@ Install [Inno Setup 6](https://jrsoftware.org/isinfo.php), build the release
 executable, then run:
 
 ```powershell
-.\scripts\build-installer.ps1 -Version 0.1.0
+.\scripts\build-installer.ps1 -Version 0.2.1
 ```
 
-The setup executable is written to `dist\TaskbarStats-0.1.0-windows-x64-setup.exe`.
+The setup executable is written to `dist\TaskbarStats-<version>-windows-x64-setup.exe`.
 Inno Setup generates the uninstaller automatically.
 
 ### Checks
@@ -306,11 +320,11 @@ Runtime log: `%APPDATA%\TaskbarStats\taskbar-stats.log`
   Set a `RELEASE_TOKEN` secret to publish releases under a real account instead
   of `github-actions[bot]`. Artifacts:
   - `TaskbarStats-<version>-windows-x64.zip`
-  - `TaskbarStats-<version>-windows-x64.exe`
+  - `TaskbarStats-<version>-windows-x64-portable.exe`
   - `TaskbarStats-<version>-windows-x64-setup.exe`
   - `TaskbarStats-<version>-windows-x64.sha256`
 - `.github/workflows/prepare-release.yml` bumps the version and pushes the tag.
-  It runs automatically when the merged commit carries a `Release-As: 0.2.0`
+  It runs automatically when the merged commit carries a `Release-As: 0.2.1`
   footer, and on demand for everything else. It needs the `RELEASE_TOKEN` secret.
 
 See [docs/RELEASING.md](docs/RELEASING.md) for the release checklist.
