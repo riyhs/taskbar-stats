@@ -1,79 +1,63 @@
-# Taskbar Stats
+<p align="center">
+  <img src="assets/icon.png" width="96" alt="Taskbar Stats">
+</p>
 
-<img src="assets/icon.png" alt="Taskbar Stats icon" width="96" align="right">
+<h1 align="center">Taskbar Stats</h1>
 
-A lightweight Windows system monitor that lives **inside the taskbar**. It shows
-CPU, GPU, memory, disk, and network activity at a glance, then opens a detail
-panel with a Pomodoro timer, a small task list, and live appearance controls.
+<p align="center">A lightweight Windows system monitor that lives inside the taskbar: CPU, GPU, memory, disk, and network at a glance, plus a detail panel with a Pomodoro timer, a task list, and live appearance controls.</p>
 
-No administrator rights, no background service, and no network access. It uses
-only user-mode Windows APIs.
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/version-0.2.0-5B9CFF?style=flat-square" alt="Version 0.2.0"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/Rust-2021-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2021">
+  <img src="https://img.shields.io/badge/admin-not%20required-22c55e?style=flat-square" alt="No administrator rights">
+  <img src="https://img.shields.io/badge/telemetry-none-64748b?style=flat-square" alt="No telemetry">
+</p>
 
-![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows)
-![Rust](https://img.shields.io/badge/Rust-2021-000000?logo=rust)
-![Version](https://img.shields.io/badge/version-0.1.0-5B9CFF)
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/badge/Download%20for%20Windows-Taskbar%20Stats%200.2.0-e5484d?style=for-the-badge&logo=windows&logoColor=white" alt="Download Taskbar Stats for Windows" height="40"></a>
+</p>
 
-![Taskbar Stats overview](docs/screenshots/overview.png)
+<p align="center">
+  <sub><a href="#-highlights">Highlights</a> · <a href="#-screenshots">Screenshots</a> · <a href="#install">Install</a> · <a href="#usage">Usage</a> · <a href="#configuration">Configuration</a> · <a href="#build-from-source">Build from source</a></sub>
+</p>
 
-## Features
+<br>
 
-- **Taskbar strip** with compact cells for CPU, each detected GPU, memory, local
-  disk usage, and download/upload speed. Every cell has a live value and a
-  utilization or activity bar; temperatures appear where the sensor is available.
-- **Five panel tabs**: **Overview**, **Pomodoro**, **Todo**, **Settings**, and
-  **Appearance**. The tab bar is anchored to the bottom so it never moves out
-  from under the pointer.
-- **Pomodoro timer** with 25/50 minute focus presets, 5/10 minute breaks,
-  start/pause, reset, skip, completed-session count, progress bar, and Windows
-  tray notifications when a phase ends.
-- **Todo list** with add, complete, delete, clear-completed, and paging for more
-  than five tasks. Tasks are saved with the rest of the configuration.
-- **Six color themes**: System, Dark, Light, AMOLED, Slate, and Sand.
-- **Three independent surface styles**: Solid, Blur (a captured desktop blur
-  behind the panel), and Clear (translucent without blur).
-- **Text size control**: Compact, Normal, or Large. Panel geometry, tabs, and
-  controls scale with the text, long labels shrink or ellipsize instead of
-  overflowing, and the strip follows the setting up to its fixed taskbar
-  height.
-- **Per-GPU controls**: each adapter gets its own strip cell and can be shown or
-  hidden independently.
-- **Network speed**: download and upload rates from Windows performance counters,
-  available as an optional `NET` strip cell and in a dedicated `NETWORK` row
-  under the Overview cards.
-- **Smart taskbar placement**: avoids existing taskbar buttons and the
-  notification area, snaps into a free gap, and can be dragged into a new spot.
-- **Tray icon** while the app is running. Left-click it to open the panel;
-  right-click for Settings, Reload config, and Exit.
-- **Start with Windows** toggle in Settings. It registers the current executable
-  in the current user's Run key; no elevation is required.
-- **Display picker**: send the widget to a secondary monitor, so it stays
-  visible while a game runs fullscreen on the primary display.
-- **Live settings**: position, offset, refresh interval, hover delay, memory and
-  disk display modes, widget visibility, per-GPU visibility, text size, startup,
-  themes, styles, accent color, Pomodoro lengths, and reset. Everything saves
-  automatically.
-- **Current version in the panel footer**, taken from the release tag in CI and
-  from the package version for local builds.
-- **Explorer-restart recovery**, single-instance protection, per-monitor DPI
-  support, and a short panel fade that respects the Windows animation setting.
-- **Installer and uninstaller** in the release artifacts, with a portable zip
-  alternative. Both are per-user and do not require elevation.
-- **Local only**: no analytics, no telemetry, no cloud calls, no drivers, and no
-  elevation requirement.
+## ✨ Highlights
 
-## Screenshots
+- Lives inside the taskbar, not in a floating window
+- CPU, GPU, memory, disk, and network in one compact strip
+- Detail panel with Overview, Pomodoro, Todo, Settings, and Appearance
+- Pomodoro timer with focus and break presets and tray notifications
+- Todo list saved with the rest of your configuration
+- Six themes and three independent surface styles
+- Text size that scales the whole panel, never clipping a label
+- Per-GPU cells with individual toggles
+- Display picker, so the strip can follow a secondary monitor
+- Collision-aware placement that avoids other taskbar buttons
+- Drag the strip to any free taskbar gap
+- Tray icon and a Start with Windows toggle
+- Per-monitor DPI, Explorer-restart recovery, single instance
+- Per-user installer and uninstaller, no elevation
+- Local only: no telemetry, no drivers, no network access
 
-| Overview | Pomodoro |
-| --- | --- |
-| <img src="docs/screenshots/overview.png" alt="Overview panel and taskbar strip" width="360"> | <img src="docs/screenshots/pomodoro.png" alt="Pomodoro timer tab" width="360"> |
+## 🖼 Screenshots
 
-| Todo | Settings |
-| --- | --- |
-| <img src="docs/screenshots/todo.png" alt="Todo list tab" width="360"> | <img src="docs/screenshots/settings.png" alt="Settings tab" width="360"> |
-
-| Appearance | Taskbar strip |
-| --- | --- |
-| <img src="docs/screenshots/appearance.png" alt="Appearance tab" width="360"> | <img src="docs/screenshots/strip.png" alt="Taskbar strip with CPU, GPU, memory, disk and network cells" width="420"> |
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/overview.png" alt="Overview" width="100%"><p align="center"><b>Overview</b></p></td>
+<td width="50%"><img src="docs/screenshots/pomodoro.png" alt="Pomodoro" width="100%"><p align="center"><b>Pomodoro</b></p></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/todo.png" alt="Todo" width="100%"><p align="center"><b>Todo</b></p></td>
+<td width="50%"><img src="docs/screenshots/settings.png" alt="Settings" width="100%"><p align="center"><b>Settings</b></p></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/appearance.png" alt="Appearance" width="100%"><p align="center"><b>Appearance</b></p></td>
+<td width="50%"><img src="docs/screenshots/strip.png" alt="Taskbar strip" width="100%"><p align="center"><b>Taskbar strip</b></p></td>
+</tr>
+</table>
 
 The screenshots use the built-in Dark theme with the Solid surface style.
 
@@ -178,6 +162,7 @@ are saved immediately. Up to 20 tasks are kept; five are shown per page.
 The Settings tab controls placement and behavior:
 
 - left/right anchor and offset
+- display to place the widget on (`Auto` or a numbered monitor)
 - memory and disk display mode (`GB` or `%`)
 - refresh interval (0.5 s, 1 s, 2 s)
 - hover delay (0, 150, 220, 400 ms)
@@ -285,8 +270,8 @@ cargo test --all-targets
 - **CPU core bars are intentionally absent** from the Overview. Per-core load was
   too small to read at panel scale; the CPU card shows overall load, temperature,
   and thread count instead.
-- The app targets the horizontal primary taskbar. Multi-monitor taskbars and
-  vertical taskbars are not supported yet.
+- The app targets horizontal taskbars on the primary or any secondary monitor.
+  Vertical taskbars are not supported yet.
 - The executable is currently unsigned. Builds are reproducible from source, and
   release artifacts include SHA-256 checksums.
 
