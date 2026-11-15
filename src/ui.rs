@@ -54,10 +54,11 @@ pub struct Layout {
     card_h: f32,
     todo_step: f32,
     pomodoro_card_h: f32,
+    monitors: usize,
 }
 
 impl Layout {
-    pub fn new(font_scale: f64) -> Self {
+    pub fn new(font_scale: f64, monitors: usize) -> Self {
         let t = font_scale.clamp(0.85, 1.15) as f32 - 1.0;
         let chip_top = 18.0 + t * 13.0;
         let chip_h = 24.0 + t * 20.0;
@@ -69,6 +70,7 @@ impl Layout {
             card_h: 101.0 + t * 45.0,
             todo_step: 34.0 + t * 8.0,
             pomodoro_card_h: 104.0 + t * 28.0,
+            monitors: monitors.max(1),
         }
     }
 
@@ -131,6 +133,7 @@ pub enum PanelAction {
     WidgetDisk,
     WidgetNet,
     Gpu(usize),
+    Monitor(usize),
     LaunchAtStartup,
     FontCompact,
     FontNormal,
@@ -159,7 +162,7 @@ pub fn panel_height(tab: PanelTab, layout: &Layout) -> f32 {
         }
         PanelTab::Todo => layout.todo_action_top() + layout.chip_h + 16.0 + TAB_BAND,
         PanelTab::Settings => {
-            PAD + 5.0 * layout.row_step + layout.chip_top + layout.chip_h + 16.0 + TAB_BAND
+            PAD + 6.0 * layout.row_step + layout.chip_top + layout.chip_h + 16.0 + TAB_BAND
         }
         PanelTab::Appearance => {
             PAD + 2.0 * layout.row_step + layout.chip_top + layout.chip_h + 16.0 + TAB_BAND
@@ -271,16 +274,19 @@ fn settings_rect(action: PanelAction, gpu_count: usize, layout: &Layout) -> Opti
         PanelAction::Gpu(index) if index < gpu_count => {
             Some(full_row_rect(index, gpu_count, 4, layout))
         }
+        PanelAction::Monitor(index) if index <= layout.monitors => {
+            Some(full_row_rect(index, layout.monitors + 1, 5, layout))
+        }
         PanelAction::LaunchAtStartup => Some(chip_rect(
             PAD,
             150.0,
-            layout.row_y(5) + layout.chip_top,
+            layout.row_y(6) + layout.chip_top,
             layout,
         )),
         PanelAction::Reset => Some(chip_rect(
             PANEL_WIDTH - PAD - 104.0,
             104.0,
-            layout.row_y(5) + layout.chip_top,
+            layout.row_y(6) + layout.chip_top,
             layout,
         )),
         PanelAction::FontCompact => Some(segment_rect(PAD, COL_W, 2, 3, 0, layout)),
@@ -454,6 +460,14 @@ pub fn action_at(
             .or_else(|| {
                 (0..gpu_count).find_map(|index| {
                     let action = PanelAction::Gpu(index);
+                    settings_rect(action, gpu_count, layout)
+                        .is_some_and(|rect| contains(rect, x, y))
+                        .then_some(action)
+                })
+            })
+            .or_else(|| {
+                (0..=layout.monitors).find_map(|index| {
+                    let action = PanelAction::Monitor(index);
                     settings_rect(action, gpu_count, layout)
                         .is_some_and(|rect| contains(rect, x, y))
                         .then_some(action)
@@ -782,12 +796,13 @@ pub fn draw_panel(
     pomodoro: &Pomodoro,
     todo_page: usize,
     gpu_names: &[String],
+    monitors: &[crate::taskbar::Monitor],
     background: Option<&[u8]>,
     background_width: u32,
     background_height: u32,
 ) -> Result<()> {
     let p = palette(light, &config.theme, &config.style, &config.accent);
-    let layout = Layout::new(config.font_scale);
+    let layout = Layout::new(config.font_scale, monitors.len());
     renderer.begin()?;
     renderer.translate(PANEL_MARGIN, 0.0);
     if let Some(pixels) = background {
@@ -821,7 +836,7 @@ pub fn draw_panel(
     );
     match tab {
         PanelTab::Settings => {
-            draw_settings(renderer, config, hover, gpu_names, &p, &layout);
+            draw_settings(renderer, config, hover, gpu_names, monitors, &p, &layout);
             return renderer.end(hwnd);
         }
         PanelTab::Appearance => {
@@ -1063,6 +1078,7 @@ fn draw_settings(
     config: &Config,
     hover: Option<PanelAction>,
     gpu_names: &[String],
+    monitors: &[crate::taskbar::Monitor],
     p: &Palette,
     layout: &Layout,
 ) {
@@ -1074,6 +1090,7 @@ fn draw_settings(
     draw_group(renderer, COL2, layout.row_y(2), "HOVER DELAY", p);
     draw_group(renderer, PAD, layout.row_y(3), "WIDGETS", p);
     draw_group(renderer, PAD, layout.row_y(4), "GPUS", p);
+    draw_group(renderer, PAD, layout.row_y(5), "MONITOR", p);
 
     let position = if config.position == "left" {
         Some(0)
@@ -1218,6 +1235,29 @@ fn draw_settings(
             label,
             selected,
             hover == Some(action),
+            p,
+            9.0,
+        );
+    }
+
+    let selected = (config.monitor as usize).min(layout.monitors);
+    for index in 0..=layout.monitors {
+        let Some(rect) = settings_rect(PanelAction::Monitor(index), gpu_names.len(), layout) else {
+            continue;
+        };
+        let label = match index {
+            0 => "Auto".to_string(),
+            _ => monitors
+                .get(index - 1)
+                .map(|monitor| monitor.label())
+                .unwrap_or_else(|| index.to_string()),
+        };
+        draw_chip(
+            renderer,
+            rect,
+            &label,
+            selected == index,
+            hover == Some(PanelAction::Monitor(index)),
             p,
             9.0,
         );

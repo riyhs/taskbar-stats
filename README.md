@@ -46,6 +46,8 @@ only user-mode Windows APIs.
   right-click for Settings, Reload config, and Exit.
 - **Start with Windows** toggle in Settings. It registers the current executable
   in the current user's Run key; no elevation is required.
+- **Display picker**: send the widget to a secondary monitor, so it stays
+  visible while a game runs fullscreen on the primary display.
 - **Live settings**: position, offset, refresh interval, hover delay, memory and
   disk display modes, widget visibility, per-GPU visibility, text size, startup,
   themes, styles, accent color, Pomodoro lengths, and reset. Everything saves
@@ -85,9 +87,9 @@ The screenshots use the built-in Dark theme with the Solid surface style.
 | Linux / macOS | Not supported |
 | Windows Server | Not targeted |
 
-The app targets the **horizontal primary taskbar**. Vertical taskbars,
-secondary-monitor taskbars, and heavily customized Explorer replacements have
-not been verified.
+The app targets **horizontal taskbars** and follows whichever display you pick
+in Settings, including `Shell_SecondaryTrayWnd` on secondary monitors. Vertical
+taskbars and heavily customized Explorer replacements have not been verified.
 
 ## Install
 
@@ -199,6 +201,7 @@ the Settings and Appearance tabs; the file is shown here for reference.
 | Key | Meaning |
 | --- | --- |
 | `position` | `"left"` or `"right"` |
+| `monitor` | `0` follows the primary taskbar; `1..n` is a display number |
 | `offset` | Distance from the anchored edge, in DIP |
 | `widgets` | Visible strip cells: `cpu`, `gpu`, `mem`, `disk`, `net` |
 | `theme` | `system`, `dark`, `light`, `amoled`, `slate`, `sand` |

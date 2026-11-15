@@ -80,8 +80,10 @@ The app exits through the strip context menu: right-click the strip and choose
 
 ## Invariants
 
-1. Keep the strip inside the taskbar. It is a layered child of
-   `Shell_TrayWnd`; do not replace it with a floating top-level window.
+1. Keep the strip inside the taskbar. It is a layered child of `Shell_TrayWnd`
+   or `Shell_SecondaryTrayWnd`; do not replace it with a floating top-level
+   window. Never assume `FindWindowW("Shell_TrayWnd")` is the selected display;
+   resolve it through `taskbar::find(config.monitor)`.
 2. Keep the detail panel above the taskbar on a bottom taskbar and inside the
    monitor work area. It must never push or overlay content below the taskbar.
 3. Do not introduce a service, kernel driver, DLL injection, or elevation
