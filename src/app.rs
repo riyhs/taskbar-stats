@@ -21,7 +21,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
     RegCloseKey, RegDeleteValueW, RegGetValueW, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER,
-    KEY_SET_VALUE, REG_SZ, RRF_RT_REG_DWORD,
+    KEY_SET_VALUE, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
 };
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -242,6 +242,12 @@ struct StripDrag {
 impl App {
     fn start(&mut self) {
         self.refresh_theme();
+        if !self.config.launch_at_startup && startup_registered() {
+            self.config.launch_at_startup = true;
+            if let Err(error) = self.config.save(&self.config_path) {
+                logging::write(&format!("config save failed: {error}"));
+            }
+        }
         if !sync_startup(self.config.launch_at_startup) {
             logging::write("could not update startup registration");
         }
@@ -1943,6 +1949,22 @@ fn load_app_icon(hinstance: HINSTANCE) -> Option<HICON> {
             .ok()
             .or_else(|| LoadIconW(HINSTANCE::default(), IDI_APPLICATION).ok())
     }
+}
+
+fn startup_registered() -> bool {
+    let mut size = 0u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!(r"Software\Microsoft\Windows\CurrentVersion\Run"),
+            w!("TaskbarStats"),
+            RRF_RT_REG_SZ,
+            None,
+            None,
+            Some(&mut size),
+        )
+    };
+    status.0 == 0
 }
 
 fn sync_startup(enabled: bool) -> bool {

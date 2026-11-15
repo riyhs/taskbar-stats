@@ -131,33 +131,38 @@ installer, and publishes:
 
 ```text
 TaskbarStats-<version>-windows-x64.zip
-TaskbarStats-<version>-windows-x64.exe
+TaskbarStats-<version>-windows-x64-portable.exe
 TaskbarStats-<version>-windows-x64-setup.exe
 TaskbarStats-<version>-windows-x64.sha256
 ```
 
-The zip contains the executable. The setup executable installs the app and
-generates an uninstaller automatically. The checksum file covers both the zip and
-the setup executable using the standard two-space format:
+The zip contains the portable executable. The setup executable installs the app
+and generates an uninstaller automatically. The checksum file covers both the zip
+and the setup executable using the standard two-space format:
 
 ```text
 <sha256>  TaskbarStats-<version>-windows-x64.zip
 <sha256>  TaskbarStats-<version>-windows-x64-setup.exe
 ```
 
+The portable artifact keeps the `-portable` suffix so it cannot be confused with
+the installer when both sit in a Downloads folder.
+
 ## Installer
 
 The installer source is `installer/taskbar-stats.iss`. It targets the current
 user, installs under `%LOCALAPPDATA%\Programs\TaskbarStats`, and does not require
-elevation.
+elevation. The **Start Taskbar Stats with Windows** task writes the same
+`HKCU\...\Run` value that the in-app toggle manages; the app adopts an existing
+value on first launch instead of deleting it.
 
 To build it locally, install Inno Setup 6, build the release executable, then run:
 
 ```powershell
-.\scripts\build-installer.ps1 -Version 0.1.0
+.\scripts\build-installer.ps1 -Version 0.2.1
 ```
 
-The result is written to `dist/TaskbarStats-0.1.0-windows-x64-setup.exe`.
+The result is written to `dist/TaskbarStats-<version>-windows-x64-setup.exe`.
 
 ## Signing
 
