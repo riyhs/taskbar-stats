@@ -24,6 +24,10 @@
 
 <br>
 
+<p align="center">
+  <img src="docs/media/demo.gif" width="100%" alt="Taskbar Stats in motion">
+</p>
+
 ## ✨ Highlights
 
 - Lives inside the taskbar, not in a floating window
