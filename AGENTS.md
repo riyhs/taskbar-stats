@@ -60,7 +60,7 @@ The app exits through the strip context menu: right-click the strip and choose
 | `src/taskbar.rs` | Find `Shell_TrayWnd`, attach the strip, place it around the tray |
 | `src/render.rs` | Direct2D/DirectWrite renderer, DIB, bitmap backdrops, layered-window presentation |
 | `src/capture.rs` | Desktop capture, box blur, and rounded-corner mask for the Blur style |
-| `src/ui.rs` | Strip and five-tab panel composition, Pomodoro/Todo views, Settings/Appearance controls, hit testing, palette, text formatting |
+| `src/ui.rs` | Strip and five-tab panel composition, Pomodoro/Todo views, Settings/Appearance controls, hit testing, palette, sparkline geometry, text formatting |
 | `src/metrics.rs` | Sampling loop and snapshot data, including CPU, memory, disk, and network counters |
 | `src/pomodoro.rs` | Pomodoro phase state, countdown, and completion events |
 | `src/gpu.rs` | DXGI adapter enumeration, GPU load and temperature providers |
@@ -140,8 +140,11 @@ The app exits through the strip context menu: right-click the strip and choose
 - Settings and Appearance controls use the 24 px chip base geometry, 6 px
   radius, soft card border, card fill, 2 px accent selected underline, and
   primary semibold selected text.
+- Keep `strip_style` independent of `style`. `plain` must draw no background,
+  border, or bars so the strip can sit beside native tray items; `match` must
+  keep the panel surface. Never merge the strip and panel settings.
 - Keep the Overview panel at 400 × 322 DIP, Pomodoro at 400 × 352 DIP, Todo at
-  400 × 290 DIP, Settings at 400 × 352 DIP, and Appearance at 400 × 208 DIP at
+  400 × 290 DIP, Settings at 400 × 352 DIP, and Appearance at 400 × 256 DIP at
   Normal text size; `Layout` derives every height, row step, chip height, and
   card height from `font_scale`, so drawing and hit testing must share it.
   Every page uses the shared `PAD` and `LABEL_H` tokens so the top and bottom

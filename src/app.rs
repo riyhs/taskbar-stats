@@ -24,6 +24,9 @@ use windows::Win32::System::Registry::{
     KEY_SET_VALUE, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
 };
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::Controls::Dialogs::{
+    ChooseColorW, CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW,
+};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_ESCAPE,
@@ -1189,6 +1192,30 @@ impl App {
         }
     }
 
+    fn pick_accent(&mut self) {
+        let mut custom = [COLORREF(0); 16];
+        for (slot, hex) in custom.iter_mut().zip(ui::ACCENTS.iter()) {
+            *slot = ui::accent_colorref(hex);
+        }
+        let mut choice = CHOOSECOLORW {
+            lStructSize: size_of::<CHOOSECOLORW>() as u32,
+            hwndOwner: self.popup,
+            rgbResult: ui::accent_colorref(&self.config.accent),
+            lpCustColors: custom.as_mut_ptr(),
+            Flags: CC_RGBINIT | CC_FULLOPEN | CC_ANYCOLOR,
+            ..Default::default()
+        };
+        if unsafe { ChooseColorW(&mut choice) }.as_bool() {
+            let value = choice.rgbResult.0;
+            self.config.accent = format!(
+                "#{:02X}{:02X}{:02X}",
+                value & 0xFF,
+                (value >> 8) & 0xFF,
+                (value >> 16) & 0xFF
+            );
+        }
+    }
+
     fn commit_todo_dialog(&mut self) {
         if self.todo_dialog.is_none() {
             return;
@@ -1605,9 +1632,18 @@ impl App {
             ui::PanelAction::LaunchAtStartup => {
                 self.config.launch_at_startup = !self.config.launch_at_startup;
             }
+            ui::PanelAction::AccentCustom => self.pick_accent(),
+            ui::PanelAction::StripStyleMatch => self.config.strip_style = "match".into(),
+            ui::PanelAction::StripStyleSolid => self.config.strip_style = "solid".into(),
+            ui::PanelAction::StripStylePlain => self.config.strip_style = "plain".into(),
+            ui::PanelAction::SparklinesOff => self.config.sparklines = false,
+            ui::PanelAction::SparklinesOn => self.config.sparklines = true,
             ui::PanelAction::FontCompact => self.config.font_scale = 0.9,
             ui::PanelAction::FontNormal => self.config.font_scale = 1.0,
             ui::PanelAction::FontLarge => self.config.font_scale = 1.15,
+            ui::PanelAction::StripFontCompact => self.config.strip_font_scale = 0.9,
+            ui::PanelAction::StripFontNormal => self.config.strip_font_scale = 1.0,
+            ui::PanelAction::StripFontLarge => self.config.strip_font_scale = 1.15,
             ui::PanelAction::PomodoroToggle => self.pomodoro.toggle(),
             ui::PanelAction::PomodoroReset => self.pomodoro.reset(&self.config),
             ui::PanelAction::PomodoroSkip => self.pomodoro.skip(&self.config),

@@ -93,7 +93,8 @@ card_h     = 101 + 45t     todo_step = 34 + 8t
 todo_card  = 104 + 28t
 ```
 
-The strip stays at its base size; the panel honors the full setting.
+The strip caps the panel setting at Normal unless a separate strip size is
+configured; `strip_font_scale` scales strip text on its own.
 
 Layout:
 
@@ -175,6 +176,19 @@ Rules:
 
 Colors are stored as premultiplied Direct2D RGBA values in `src/ui.rs`.
 `accent` is the user-configurable `#RRGGBB` value; it defaults to `#5B9CFF`.
+The six presets are shortcuts to the Windows colour picker, which accepts any
+value.
+
+### Strip surface
+
+`strip_style` separates the strip from the panel:
+
+- `match` follows the panel theme and style, so the strip and panel read as one
+  surface.
+- `solid` keeps the theme colors but forces the background opaque, which suits
+  wallpapers that make blur unreadable.
+- `plain` drops the background, border, and progress bars, leaving text only so
+  the strip sits beside battery, network, and clock like a native tray item.
 
 ### Themes
 
@@ -410,7 +424,7 @@ panel is 208 px while Appearance is active at Normal text size.
    touches its neighbor.
 2. Five-cell layout at 420 px; strip remains clear of the notification area.
 3. Overview at 400 × 322, Pomodoro at 400 × 352, Todo at 400 × 290, Settings at
-   400 × 352, and Appearance at 400 × 208 at Normal; every page also fits at
+   400 × 352, and Appearance at 400 × 256 at Normal; every page also fits at
    Compact and Large without clipping or a clipped tab,
    with 6 DIP side margins and 16 px top/bottom padding above the tab bar.
 4. System, Dark, Light, AMOLED, Slate, and Sand themes retain hierarchy and
