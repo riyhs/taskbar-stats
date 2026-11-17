@@ -609,6 +609,10 @@ pub fn draw_strip(
         };
     }
     renderer.begin()?;
+    // A layered window passes mouse input through any pixel whose alpha is
+    // zero, so a bare strip would only react where glyphs land. Give the whole
+    // rect the smallest visible alpha and draw over it.
+    renderer.fill_round(0.0, 0.0, width, height, 0.0, rgb(0, 0, 0, 1.0 / 255.0));
 
     if !plain {
         renderer.fill_round(
