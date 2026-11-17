@@ -84,8 +84,9 @@ The app exits through the strip context menu: right-click the strip and choose
    or `Shell_SecondaryTrayWnd`; do not replace it with a floating top-level
    window. Never assume `FindWindowW("Shell_TrayWnd")` is the selected display;
    resolve it through `taskbar::find(config.monitor)`.
-2. Keep the detail panel above the taskbar on a bottom taskbar and inside the
-   monitor work area. It must never push or overlay content below the taskbar.
+2. Keep the detail panel above the taskbar on a bottom taskbar, beside it on a
+   vertical one, and always inside the monitor work area. It must never push or
+   overlay content below or across the taskbar.
 3. Do not introduce a service, kernel driver, DLL injection, or elevation
    requirement. All current sensors are user-mode.
 4. Never fabricate a sensor value. Missing CPU, GPU, or disk temperature must
@@ -100,8 +101,10 @@ The app exits through the strip context menu: right-click the strip and choose
 8. Keep the strip width deterministic from the configured widgets and visible
    GPU count so placement remains stable.
 9. Placement must avoid visible taskbar siblings. Use the occupancy logic in
-   `src/taskbar.rs`; keep the 6 px collision gap and do not fall back to
-   `tray_left` alone.
+   `src/taskbar.rs`; keep the 6 px collision gap and do not fall back to the
+   tray bound alone. Everything measured along the bar goes through
+   `Taskbar::length()`/`thickness()` so vertical bars work: do not assume a
+   horizontal bar or read `rect.left`/`rect.right` directly.
 10. The Settings and Appearance tabs are the supported configuration path.
     Every control change must validate, save, and apply immediately; do not
     reintroduce a manual-edit-only workflow.

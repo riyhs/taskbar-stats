@@ -293,8 +293,8 @@ cargo test --all-targets
 - **CPU core bars are intentionally absent** from the Overview. Per-core load was
   too small to read at panel scale; the CPU card shows overall load, temperature,
   and thread count instead.
-- The app targets horizontal taskbars on the primary or any secondary monitor.
-  Vertical taskbars are not supported yet.
+- The app follows the primary or any secondary taskbar, horizontal or vertical.
+  A vertical bar stacks the strip cells top to bottom.
 - The executable is currently unsigned. Builds are reproducible from source, and
   release artifacts include SHA-256 checksums.
 

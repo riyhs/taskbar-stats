@@ -47,6 +47,12 @@ width = 2 * 4 + 2 * 6 + cells * 72 + (cells - 1) * 10
 `gpu` expands to one cell per physical adapter, so five visible cells produce a
 420 px strip. Widths scale with the taskbar DPI.
 
+On a vertical bar the same length becomes the strip's height and the cells stack
+top to bottom in the same order. Each cell then spans the bar's full thickness:
+the label sits at the top, the value under it, and the temperature under the
+value, with the track bar along the bottom. Text never rotates, because a
+sideways label is harder to read than a stacked one.
+
 Cell anatomy:
 
 ```text

@@ -524,7 +524,9 @@ pub fn action_at(
     None
 }
 
-pub fn strip_width_dip(config: &Config, gpu_count: usize) -> i32 {
+/// Length of the strip along the bar: the width of a horizontal bar, or the
+/// height of a vertical one.
+pub fn strip_length_dip(config: &Config, gpu_count: usize) -> i32 {
     let count = strip_cell_count(config, gpu_count) as f32;
     (2.0 * STRIP_PAD + 2.0 * STRIP_INNER + count * STRIP_CELL_W + (count - 1.0) * STRIP_GAP).round()
         as i32
@@ -563,6 +565,9 @@ struct StripCell {
     show_bar: bool,
 }
 
+/// Draws the strip. A vertical taskbar bar gives `vertical = true`, which stacks
+/// the cells down the bar instead of across it.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_strip(
     renderer: &Renderer,
     hwnd: HWND,
@@ -571,6 +576,7 @@ pub fn draw_strip(
     light: bool,
     width: f32,
     height: f32,
+    vertical: bool,
 ) -> Result<()> {
     let solid = config.strip_style != "match";
     let mut p = palette(
@@ -625,10 +631,14 @@ pub fn draw_strip(
     }
 
     let cells = build_strip_cells(snapshot, config, &p);
+    let scale = config.strip_font_scale.clamp(0.85, 1.15) as f32;
+    if vertical {
+        draw_strip_column(renderer, &cells, width, height, scale, plain, &p);
+        return renderer.end(hwnd);
+    }
     let count = cells.len().max(1) as f32;
     let content_width = width - 2.0 * STRIP_PAD - 2.0 * STRIP_INNER;
     let cell_width = (content_width - (count - 1.0) * STRIP_GAP) / count;
-    let scale = config.strip_font_scale.clamp(0.85, 1.15) as f32;
     let value_size = (((height - 8.0) * 0.43).clamp(9.0, 17.0) * scale).min(height * 0.46);
     let label_size =
         (((height - 8.0) * 0.225).clamp(6.5, LABEL_SIZE) * scale).min(value_size * 0.86);
@@ -695,6 +705,79 @@ pub fn draw_strip(
     }
 
     renderer.end(hwnd)
+}
+
+/// Stacks the cells down a vertical taskbar. Text keeps its normal orientation
+/// and the progress bar runs horizontally inside each cell, which matches how
+/// native tray icons read in a side bar.
+fn draw_strip_column(
+    renderer: &Renderer,
+    cells: &[StripCell],
+    width: f32,
+    height: f32,
+    scale: f32,
+    plain: bool,
+    p: &Palette,
+) {
+    let count = cells.len().max(1) as f32;
+    let content_height = height - 2.0 * STRIP_PAD - 2.0 * STRIP_INNER;
+    let cell_height = (content_height - (count - 1.0) * STRIP_GAP) / count;
+    let content_width = width - 2.0 * STRIP_PAD - 2.0 * STRIP_INNER;
+    let value_size = ((cell_height - 4.0) * 0.40).clamp(8.0, 13.0) * scale;
+    let label_size = ((cell_height - 4.0) * 0.21).clamp(6.0, LABEL_SIZE) * scale;
+    let detail_size = label_size.min(TEMP_SIZE);
+
+    for (index, cell) in cells.iter().enumerate() {
+        let top = STRIP_PAD + STRIP_INNER + index as f32 * (cell_height + STRIP_GAP);
+        let x = STRIP_PAD + STRIP_INNER;
+        renderer.text_fit(
+            &cell.label,
+            x,
+            top + 1.0,
+            content_width,
+            label_size + 2.0,
+            label_size,
+            5.5,
+            p.muted,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_TEXT_ALIGNMENT_LEADING,
+        );
+        let value_top = top + cell_height * 0.30;
+        renderer.text_fit(
+            &cell.value,
+            x,
+            value_top,
+            content_width,
+            value_size + 3.0,
+            value_size,
+            8.0,
+            cell.value_color,
+            DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_TEXT_ALIGNMENT_LEADING,
+        );
+        if let Some((detail, detail_color)) = &cell.detail {
+            renderer.text_fit(
+                detail,
+                x,
+                value_top + value_size + 2.5,
+                content_width,
+                detail_size + 2.0,
+                detail_size,
+                5.5,
+                *detail_color,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_TEXT_ALIGNMENT_LEADING,
+            );
+        }
+        if cell.show_bar && !plain {
+            let bar_y = top + cell_height - 3.0;
+            renderer.fill_round(x, bar_y, content_width, 2.5, 1.25, p.track);
+            if cell.fraction > 0.0 {
+                let fill = (content_width * cell.fraction.clamp(0.0, 1.0)).max(2.5);
+                renderer.fill_round(x, bar_y, fill, 2.5, 1.25, cell.bar_color);
+            }
+        }
+    }
 }
 
 fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<StripCell> {
