@@ -128,6 +128,12 @@ pub enum PanelAction {
     OffsetMinus,
     OffsetPlus,
     Accent(usize),
+    AccentCustom,
+    StripStyleMatch,
+    StripStyleSolid,
+    StripStylePlain,
+    SparklinesOff,
+    SparklinesOn,
     WidgetCpu,
     WidgetMem,
     WidgetDisk,
@@ -138,6 +144,9 @@ pub enum PanelAction {
     FontCompact,
     FontNormal,
     FontLarge,
+    StripFontCompact,
+    StripFontNormal,
+    StripFontLarge,
     PomodoroToggle,
     PomodoroReset,
     PomodoroSkip,
@@ -165,7 +174,7 @@ pub fn panel_height(tab: PanelTab, layout: &Layout) -> f32 {
             PAD + 6.0 * layout.row_step + layout.chip_top + layout.chip_h + 16.0 + TAB_BAND
         }
         PanelTab::Appearance => {
-            PAD + 2.0 * layout.row_step + layout.chip_top + layout.chip_h + 16.0 + TAB_BAND
+            PAD + 3.0 * layout.row_step + layout.chip_top + layout.chip_h + 16.0 + TAB_BAND
         }
     }
 }
@@ -238,6 +247,23 @@ fn full_row_rect(index: usize, count: usize, row: usize, layout: &Layout) -> Rec
 
 fn chip_rect(x: f32, width: f32, y: f32, layout: &Layout) -> Rect {
     (x, y, width, layout.chip_h)
+}
+
+fn accent_rect(index: usize, layout: &Layout) -> Option<Rect> {
+    let slots = ACCENTS.len() + 1;
+    if index >= slots {
+        return None;
+    }
+    let size = 20.0;
+    let gap = 6.0;
+    let total = slots as f32 * size + (slots as f32 - 1.0) * gap;
+    let start = COL2 + (COL_W - total) / 2.0;
+    Some((
+        start + index as f32 * (size + gap),
+        layout.row_y(1) + layout.chip_top + (layout.chip_h - size) * 0.5,
+        size,
+        size,
+    ))
 }
 
 fn settings_rect(action: PanelAction, gpu_count: usize, layout: &Layout) -> Option<Rect> {
@@ -340,19 +366,16 @@ fn settings_rect(action: PanelAction, gpu_count: usize, layout: &Layout) -> Opti
         PanelAction::StyleSolid => Some(segment_rect(PAD, COL_W, 1, 3, 0, layout)),
         PanelAction::StyleBlur => Some(segment_rect(PAD, COL_W, 1, 3, 1, layout)),
         PanelAction::StyleClear => Some(segment_rect(PAD, COL_W, 1, 3, 2, layout)),
-        PanelAction::Accent(index) => {
-            if index >= ACCENTS.len() {
-                return None;
-            }
-            let total = ACCENTS.len() as f32 * 20.0 + (ACCENTS.len() as f32 - 1.0) * 6.0;
-            let start = COL2 + (COL_W - total) / 2.0;
-            Some((
-                start + index as f32 * 26.0,
-                layout.row_y(1) + layout.chip_top + (layout.chip_h - 20.0) * 0.5,
-                20.0,
-                20.0,
-            ))
-        }
+        PanelAction::Accent(index) => accent_rect(index, layout),
+        PanelAction::AccentCustom => accent_rect(ACCENTS.len(), layout),
+        PanelAction::StripStyleMatch => Some(segment_rect(PAD, COL_W, 3, 3, 0, layout)),
+        PanelAction::StripStyleSolid => Some(segment_rect(PAD, COL_W, 3, 3, 1, layout)),
+        PanelAction::StripStylePlain => Some(segment_rect(PAD, COL_W, 3, 3, 2, layout)),
+        PanelAction::SparklinesOff => Some(segment_rect(COL2, COL_W, 3, 2, 0, layout)),
+        PanelAction::SparklinesOn => Some(segment_rect(COL2, COL_W, 3, 2, 1, layout)),
+        PanelAction::StripFontCompact => Some(segment_rect(COL2, COL_W, 2, 3, 0, layout)),
+        PanelAction::StripFontNormal => Some(segment_rect(COL2, COL_W, 2, 3, 1, layout)),
+        PanelAction::StripFontLarge => Some(segment_rect(COL2, COL_W, 2, 3, 2, layout)),
         _ => None,
     }
 }
@@ -397,9 +420,18 @@ const APPEARANCE_ACTIONS: &[PanelAction] = &[
     PanelAction::Accent(3),
     PanelAction::Accent(4),
     PanelAction::Accent(5),
+    PanelAction::AccentCustom,
     PanelAction::FontCompact,
     PanelAction::FontNormal,
     PanelAction::FontLarge,
+    PanelAction::StripFontCompact,
+    PanelAction::StripFontNormal,
+    PanelAction::StripFontLarge,
+    PanelAction::StripStyleMatch,
+    PanelAction::StripStyleSolid,
+    PanelAction::StripStylePlain,
+    PanelAction::SparklinesOff,
+    PanelAction::SparklinesOn,
 ];
 
 const POMODORO_ACTIONS: &[PanelAction] = &[
@@ -492,7 +524,9 @@ pub fn action_at(
     None
 }
 
-pub fn strip_width_dip(config: &Config, gpu_count: usize) -> i32 {
+/// Length of the strip along the bar: the width of a horizontal bar, or the
+/// height of a vertical one.
+pub fn strip_length_dip(config: &Config, gpu_count: usize) -> i32 {
     let count = strip_cell_count(config, gpu_count) as f32;
     (2.0 * STRIP_PAD + 2.0 * STRIP_INNER + count * STRIP_CELL_W + (count - 1.0) * STRIP_GAP).round()
         as i32
@@ -531,6 +565,9 @@ struct StripCell {
     show_bar: bool,
 }
 
+/// Draws the strip. A vertical taskbar bar gives `vertical = true`, which stacks
+/// the cells down the bar instead of across it.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_strip(
     renderer: &Renderer,
     hwnd: HWND,
@@ -539,34 +576,76 @@ pub fn draw_strip(
     light: bool,
     width: f32,
     height: f32,
+    vertical: bool,
 ) -> Result<()> {
-    let p = palette(light, &config.theme, &config.style, &config.accent);
+    let solid = config.strip_style != "match";
+    let mut p = palette(
+        light,
+        &config.theme,
+        if config.strip_style == "match" {
+            &config.style
+        } else {
+            "solid"
+        },
+        &config.accent,
+    );
+    let plain = config.strip_style == "plain";
+    if solid && !plain {
+        p.bg.a = 1.0;
+    }
+    if plain {
+        p.card = D2D1_COLOR_F::default();
+        p.border = D2D1_COLOR_F::default();
+        p.track = D2D1_COLOR_F::default();
+        p.muted = if light {
+            rgb(88, 88, 96, 1.0)
+        } else {
+            rgb(176, 176, 186, 1.0)
+        };
+        p.secondary = if light {
+            rgb(56, 56, 64, 1.0)
+        } else {
+            rgb(206, 206, 214, 1.0)
+        };
+    }
     renderer.begin()?;
+    // A layered window passes mouse input through any pixel whose alpha is
+    // zero, so a bare strip would only react where glyphs land. Give the whole
+    // rect the smallest visible alpha and draw over it.
+    renderer.fill_round(0.0, 0.0, width, height, 0.0, rgb(0, 0, 0, 1.0 / 255.0));
 
-    renderer.fill_round(
-        STRIP_PAD,
-        STRIP_PAD,
-        width - 2.0 * STRIP_PAD,
-        height - 2.0 * STRIP_PAD,
-        STRIP_RADIUS,
-        p.bg,
-    );
-    renderer.stroke_round(
-        STRIP_PAD + 0.5,
-        STRIP_PAD + 0.5,
-        width - 2.0 * STRIP_PAD - 1.0,
-        height - 2.0 * STRIP_PAD - 1.0,
-        STRIP_RADIUS - 0.5,
-        p.border,
-        1.0,
-    );
+    if !plain {
+        renderer.fill_round(
+            STRIP_PAD,
+            STRIP_PAD,
+            width - 2.0 * STRIP_PAD,
+            height - 2.0 * STRIP_PAD,
+            STRIP_RADIUS,
+            p.bg,
+        );
+        renderer.stroke_round(
+            STRIP_PAD + 0.5,
+            STRIP_PAD + 0.5,
+            width - 2.0 * STRIP_PAD - 1.0,
+            height - 2.0 * STRIP_PAD - 1.0,
+            STRIP_RADIUS - 0.5,
+            p.border,
+            1.0,
+        );
+    }
 
     let cells = build_strip_cells(snapshot, config, &p);
+    let scale = config.strip_font_scale.clamp(0.85, 1.15) as f32;
+    if vertical {
+        draw_strip_column(renderer, &cells, width, height, scale, plain, &p);
+        return renderer.end(hwnd);
+    }
     let count = cells.len().max(1) as f32;
     let content_width = width - 2.0 * STRIP_PAD - 2.0 * STRIP_INNER;
     let cell_width = (content_width - (count - 1.0) * STRIP_GAP) / count;
-    let value_size = ((height - 8.0) * 0.43).clamp(9.0, 17.0);
-    let label_size = ((height - 8.0) * 0.225).clamp(6.5, LABEL_SIZE);
+    let value_size = (((height - 8.0) * 0.43).clamp(9.0, 17.0) * scale).min(height * 0.46);
+    let label_size =
+        (((height - 8.0) * 0.225).clamp(6.5, LABEL_SIZE) * scale).min(value_size * 0.86);
     let label_y = (height * 0.145).max(4.0);
     let value_y = (height * 0.35).max(12.0);
     let bar_y = height - 7.0;
@@ -620,7 +699,7 @@ pub fn draw_strip(
             DWRITE_TEXT_ALIGNMENT_LEADING,
         );
 
-        if cell.show_bar {
+        if cell.show_bar && !plain {
             renderer.fill_round(x, bar_y, cell_width, bar_h, bar_h * 0.5, p.track);
             if cell.fraction > 0.0 {
                 let fill = (cell_width * cell.fraction.clamp(0.0, 1.0)).max(bar_h);
@@ -630,6 +709,79 @@ pub fn draw_strip(
     }
 
     renderer.end(hwnd)
+}
+
+/// Stacks the cells down a vertical taskbar. Text keeps its normal orientation
+/// and the progress bar runs horizontally inside each cell, which matches how
+/// native tray icons read in a side bar.
+fn draw_strip_column(
+    renderer: &Renderer,
+    cells: &[StripCell],
+    width: f32,
+    height: f32,
+    scale: f32,
+    plain: bool,
+    p: &Palette,
+) {
+    let count = cells.len().max(1) as f32;
+    let content_height = height - 2.0 * STRIP_PAD - 2.0 * STRIP_INNER;
+    let cell_height = (content_height - (count - 1.0) * STRIP_GAP) / count;
+    let content_width = width - 2.0 * STRIP_PAD - 2.0 * STRIP_INNER;
+    let value_size = ((cell_height - 4.0) * 0.40).clamp(8.0, 13.0) * scale;
+    let label_size = ((cell_height - 4.0) * 0.21).clamp(6.0, LABEL_SIZE) * scale;
+    let detail_size = label_size.min(TEMP_SIZE);
+
+    for (index, cell) in cells.iter().enumerate() {
+        let top = STRIP_PAD + STRIP_INNER + index as f32 * (cell_height + STRIP_GAP);
+        let x = STRIP_PAD + STRIP_INNER;
+        renderer.text_fit(
+            &cell.label,
+            x,
+            top + 1.0,
+            content_width,
+            label_size + 2.0,
+            label_size,
+            5.5,
+            p.muted,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_TEXT_ALIGNMENT_LEADING,
+        );
+        let value_top = top + cell_height * 0.30;
+        renderer.text_fit(
+            &cell.value,
+            x,
+            value_top,
+            content_width,
+            value_size + 3.0,
+            value_size,
+            8.0,
+            cell.value_color,
+            DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_TEXT_ALIGNMENT_LEADING,
+        );
+        if let Some((detail, detail_color)) = &cell.detail {
+            renderer.text_fit(
+                detail,
+                x,
+                value_top + value_size + 2.5,
+                content_width,
+                detail_size + 2.0,
+                detail_size,
+                5.5,
+                *detail_color,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_TEXT_ALIGNMENT_LEADING,
+            );
+        }
+        if cell.show_bar && !plain {
+            let bar_y = top + cell_height - 3.0;
+            renderer.fill_round(x, bar_y, content_width, 2.5, 1.25, p.track);
+            if cell.fraction > 0.0 {
+                let fill = (content_width * cell.fraction.clamp(0.0, 1.0)).max(2.5);
+                renderer.fill_round(x, bar_y, fill, 2.5, 1.25, cell.bar_color);
+            }
+        }
+    }
 }
 
 fn build_strip_cells(snapshot: &Snapshot, config: &Config, p: &Palette) -> Vec<StripCell> {
@@ -901,6 +1053,8 @@ pub fn draw_panel(
             snapshot.cpu_load / 100.0,
             load_fill_color(snapshot.cpu_load, &p),
         )),
+        &snapshot.cpu_history,
+        config.sparklines,
         &p,
     );
 
@@ -936,6 +1090,8 @@ pub fn draw_panel(
         load_text_color(mem_pct * 100.0, &p),
         p.secondary,
         Some((mem_pct, load_fill_color(mem_pct * 100.0, &p))),
+        &snapshot.mem_history,
+        config.sparklines,
         &p,
     );
 
@@ -967,6 +1123,8 @@ pub fn draw_panel(
         load_text_color(disk_pct * 100.0, &p),
         disk_sub_color,
         Some((disk_pct, load_fill_color(disk_pct * 100.0, &p))),
+        &snapshot.disk_history,
+        config.sparklines,
         &p,
     );
 
@@ -980,6 +1138,8 @@ pub fn draw_panel(
             p.muted,
             p.secondary,
             None,
+            &[],
+            false,
             &p,
         );
     } else if snapshot.gpus.len() == 1 {
@@ -1014,13 +1174,15 @@ pub fn draw_panel(
             },
             sub_color,
             bar,
+            &[],
+            false,
             &p,
         );
     } else {
         draw_gpu_rows(renderer, gpu_card, &snapshot.gpus, &p, &layout);
     }
 
-    draw_network_row(renderer, net_card, snapshot, &p);
+    draw_network_row(renderer, net_card, snapshot, config.sparklines, &p);
 
     renderer.end(hwnd)
 }
@@ -1328,7 +1490,10 @@ fn draw_appearance(
     draw_group(renderer, PAD, layout.row_y(0), "THEME", p);
     draw_group(renderer, PAD, layout.row_y(1), "STYLE", p);
     draw_group(renderer, COL2, layout.row_y(1), "ACCENT", p);
-    draw_group(renderer, PAD, layout.row_y(2), "TEXT SIZE", p);
+    draw_group(renderer, PAD, layout.row_y(2), "PANEL TEXT", p);
+    draw_group(renderer, COL2, layout.row_y(2), "STRIP TEXT", p);
+    draw_group(renderer, PAD, layout.row_y(3), "STRIP", p);
+    draw_group(renderer, COL2, layout.row_y(3), "GRAPHS", p);
 
     let theme = match config.theme.as_str() {
         "system" => Some(0),
@@ -1378,21 +1543,41 @@ fn draw_appearance(
     );
 
     for (index, hex) in ACCENTS.iter().enumerate() {
-        let Some((x, y, w, h)) = settings_rect(PanelAction::Accent(index), 0, layout) else {
-            continue;
-        };
-        let selected = config.accent.eq_ignore_ascii_case(hex);
-        let hovered = hover == Some(PanelAction::Accent(index));
-        renderer.fill_round(x, y, w, h, 5.0, accent_color(hex));
-        if selected || hovered {
-            renderer.stroke_round(
-                x - 1.0,
-                y - 1.0,
-                w + 2.0,
-                h + 2.0,
-                6.0,
-                if selected { p.text } else { p.accent },
-                1.0,
+        draw_swatch(
+            renderer,
+            index,
+            accent_color(hex),
+            config.accent.eq_ignore_ascii_case(hex),
+            hover == Some(PanelAction::Accent(index)),
+            p,
+            layout,
+        );
+    }
+    let custom_selected = !ACCENTS
+        .iter()
+        .any(|hex| config.accent.eq_ignore_ascii_case(hex));
+    draw_swatch(
+        renderer,
+        ACCENTS.len(),
+        accent_color(&config.accent),
+        custom_selected,
+        hover == Some(PanelAction::AccentCustom),
+        p,
+        layout,
+    );
+    if custom_selected {
+        if let Some((x, y, w, _)) = accent_rect(ACCENTS.len(), layout) {
+            renderer.text_fit(
+                "+",
+                x,
+                y + 4.5,
+                w,
+                12.0,
+                9.0,
+                7.0,
+                p.bg,
+                DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                DWRITE_TEXT_ALIGNMENT_CENTER,
             );
         }
     }
@@ -1418,6 +1603,86 @@ fn draw_appearance(
         p,
         layout,
     );
+
+    let strip_size = if (config.strip_font_scale - 0.9).abs() < 0.01 {
+        Some(0)
+    } else if (config.strip_font_scale - 1.15).abs() < 0.01 {
+        Some(2)
+    } else {
+        Some(1)
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::StripFontCompact,
+            PanelAction::StripFontNormal,
+            PanelAction::StripFontLarge,
+        ],
+        &["Compact", "Normal", "Large"],
+        strip_size,
+        hover,
+        0,
+        p,
+        layout,
+    );
+
+    let strip_style = match config.strip_style.as_str() {
+        "solid" => Some(1),
+        "plain" => Some(2),
+        _ => Some(0),
+    };
+    draw_segments(
+        renderer,
+        &[
+            PanelAction::StripStyleMatch,
+            PanelAction::StripStyleSolid,
+            PanelAction::StripStylePlain,
+        ],
+        &["Match", "Solid", "Plain"],
+        strip_style,
+        hover,
+        0,
+        p,
+        layout,
+    );
+
+    draw_segments(
+        renderer,
+        &[PanelAction::SparklinesOff, PanelAction::SparklinesOn],
+        &["Off", "On"],
+        Some(usize::from(config.sparklines)),
+        hover,
+        0,
+        p,
+        layout,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_swatch(
+    renderer: &Renderer,
+    index: usize,
+    color: D2D1_COLOR_F,
+    selected: bool,
+    hovered: bool,
+    p: &Palette,
+    layout: &Layout,
+) {
+    let Some((x, y, w, h)) = accent_rect(index, layout) else {
+        return;
+    };
+    renderer.fill_round(x, y, w, h, 5.0, color);
+    if selected || hovered {
+        renderer.stroke_round(
+            x - 1.0,
+            y - 1.0,
+            w + 2.0,
+            h + 2.0,
+            6.0,
+            if selected { p.text } else { p.accent },
+            1.0,
+        );
+    }
 }
 
 fn draw_group(renderer: &Renderer, x: f32, y: f32, label: &str, p: &Palette) {
@@ -1514,6 +1779,35 @@ fn draw_card(renderer: &Renderer, card: Card, p: &Palette) {
 }
 
 #[allow(clippy::too_many_arguments)]
+fn draw_sparkline(renderer: &Renderer, card: Card, history: &[f32], color: D2D1_COLOR_F) {
+    if history.len() < 2 {
+        return;
+    }
+    let lowest = history.iter().copied().fold(f32::INFINITY, f32::min);
+    let highest = history.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let span = (highest - lowest).max(0.06);
+    let floor = ((lowest + highest) * 0.5) - span * 0.5;
+
+    let full = card.2 - 28.0;
+    let width = full * 0.42;
+    let x = card.0 + 14.0 + full - width;
+    let baseline = card.1 + 62.0;
+    let top = card.1 + 32.0;
+    let height = (baseline - top).max(8.0);
+    let step = width / (history.len() - 1) as f32;
+    let points: Vec<(f32, f32)> = history
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let level = ((value - floor) / span).clamp(0.0, 1.0);
+            (x + index as f32 * step, baseline - level * height)
+        })
+        .collect();
+    renderer.fill_area(&points, baseline, with_alpha(color, 0.14));
+    renderer.stroke_path(&points, with_alpha(color, 0.85), 1.25);
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_card_content(
     renderer: &Renderer,
     card: Card,
@@ -1523,11 +1817,18 @@ fn draw_card_content(
     value_color: D2D1_COLOR_F,
     sub_color: D2D1_COLOR_F,
     bar: Option<(f32, D2D1_COLOR_F)>,
+    history: &[f32],
+    sparklines: bool,
     p: &Palette,
 ) {
     let x = card.0 + 14.0;
     let y = card.1 + 10.0;
     let width = card.2 - 28.0;
+    if sparklines {
+        if let Some((_, bar_color)) = bar {
+            draw_sparkline(renderer, card, history, bar_color);
+        }
+    }
     renderer.text_fit(
         label,
         x,
@@ -1679,8 +1980,33 @@ fn draw_gpu_rows(renderer: &Renderer, card: Card, gpus: &[GpuInfo], p: &Palette,
     );
 }
 
-fn draw_network_row(renderer: &Renderer, card: Card, snapshot: &Snapshot, p: &Palette) {
+fn draw_network_row(
+    renderer: &Renderer,
+    card: Card,
+    snapshot: &Snapshot,
+    sparklines: bool,
+    p: &Palette,
+) {
     draw_card(renderer, card, p);
+    if sparklines && snapshot.net_history.len() > 1 {
+        let x = card.0 + 14.0;
+        let width = card.2 - 28.0;
+        let step = width / (snapshot.net_history.len() - 1) as f32;
+        let baseline = card.1 + card.3 - 4.0;
+        let top = card.1 + 15.0;
+        let points: Vec<(f32, f32)> = snapshot
+            .net_history
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                (
+                    x + index as f32 * step,
+                    baseline - value.clamp(0.0, 1.0) * (baseline - top),
+                )
+            })
+            .collect();
+        renderer.fill_area(&points, baseline, with_alpha(p.accent, 0.16));
+    }
     let x = card.0 + 14.0;
     let y = card.1 + 7.0;
     let width = card.2 - 28.0;
@@ -2366,6 +2692,23 @@ fn rgb(r: u8, g: u8, b: u8, a: f32) -> D2D1_COLOR_F {
         b: b as f32 / 255.0,
         a,
     }
+}
+
+fn with_alpha(color: D2D1_COLOR_F, alpha: f32) -> D2D1_COLOR_F {
+    D2D1_COLOR_F {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+        a: alpha,
+    }
+}
+
+pub fn accent_colorref(hex: &str) -> windows::Win32::Foundation::COLORREF {
+    let color = accent_color(hex);
+    let r = (color.r * 255.0).round() as u32;
+    let g = (color.g * 255.0).round() as u32;
+    let b = (color.b * 255.0).round() as u32;
+    windows::Win32::Foundation::COLORREF(r | (g << 8) | (b << 16))
 }
 
 fn accent_color(hex: &str) -> D2D1_COLOR_F {

@@ -30,6 +30,12 @@ pub struct Config {
     pub todos: Vec<TodoItem>,
     #[serde(default)]
     pub monitor: u32,
+    #[serde(default = "default_strip_style")]
+    pub strip_style: String,
+    #[serde(default = "default_font_scale")]
+    pub strip_font_scale: f64,
+    #[serde(default)]
+    pub sparklines: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,6 +51,10 @@ fn default_gb() -> String {
 
 fn default_style() -> String {
     "solid".into()
+}
+
+fn default_strip_style() -> String {
+    "match".into()
 }
 
 fn default_font_scale() -> f64 {
@@ -85,6 +95,9 @@ impl Default for Config {
             pomodoro_break_min: default_break_min(),
             todos: Vec::new(),
             monitor: 0,
+            strip_style: default_strip_style(),
+            strip_font_scale: default_font_scale(),
+            sparklines: false,
         }
     }
 }
@@ -156,6 +169,13 @@ impl Config {
         if !matches!(self.style.as_str(), "solid" | "blur" | "clear") {
             self.style = "solid".into();
         }
+        if !matches!(self.strip_style.as_str(), "match" | "solid" | "plain") {
+            self.strip_style = default_strip_style();
+        }
+        if !self.strip_font_scale.is_finite() {
+            self.strip_font_scale = 1.0;
+        }
+        self.strip_font_scale = self.strip_font_scale.clamp(0.85, 1.15);
         self.offset = self.offset.clamp(-4096, 4096);
         self.hover_delay_ms = self.hover_delay_ms.clamp(0, 2000);
         self.update_ms = self.update_ms.clamp(250, 5000);

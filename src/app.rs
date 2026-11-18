@@ -24,6 +24,9 @@ use windows::Win32::System::Registry::{
     KEY_SET_VALUE, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
 };
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::Controls::Dialogs::{
+    ChooseColorW, CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW,
+};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_ESCAPE,
@@ -368,9 +371,14 @@ impl App {
                     }
                     self.hover_timer = false;
                 }
+                let (cursor_start, strip_start) = if tb.vertical {
+                    (point.y, rect.top - taskbar_rect.top)
+                } else {
+                    (point.x, rect.left - taskbar_rect.left)
+                };
                 self.drag = Some(StripDrag {
-                    cursor_start: point.x,
-                    strip_start: rect.left - taskbar_rect.left,
+                    cursor_start,
+                    strip_start,
                     moved: false,
                 });
                 LRESULT(0)
@@ -655,8 +663,8 @@ impl App {
         if changed {
             if let Some(tb) = self.taskbar {
                 logging::write(&format!(
-                    "taskbar changed: hwnd={:?} w={} h={} dpi={}",
-                    tb.hwnd, tb.width, tb.height, tb.dpi
+                    "taskbar changed: hwnd={:?} w={} h={} dpi={} vertical={}",
+                    tb.hwnd, tb.width, tb.height, tb.dpi, tb.vertical
                 ));
             } else {
                 logging::write("taskbar lost");
@@ -710,8 +718,9 @@ impl App {
         }
         let width = self.strip_w_px as f32 * 96.0 / self.strip_dpi as f32;
         let height = self.strip_h_px as f32 * 96.0 / self.strip_dpi as f32;
+        let vertical = self.taskbar.map(|tb| tb.vertical).unwrap_or(false);
         self.strip_renderer
-            .set_font_scale((self.config.font_scale as f32).min(1.0));
+            .set_font_scale((self.config.strip_font_scale as f32).clamp(0.85, 1.15));
         if let Err(error) = ui::draw_strip(
             &self.strip_renderer,
             self.strip,
@@ -720,6 +729,7 @@ impl App {
             self.light,
             width,
             height,
+            vertical,
         ) {
             logging::write(&format!("strip render failed: {error}"));
         }
@@ -764,8 +774,8 @@ impl App {
         if !unsafe { IsWindow(self.strip).as_bool() } {
             return;
         }
-        let width_dip = ui::strip_width_dip(&self.config, self.visible_gpu_count());
-        let (x, _, width, height) = taskbar::place(
+        let width_dip = ui::strip_length_dip(&self.config, self.visible_gpu_count());
+        let (x, y, width, height) = taskbar::place(
             self.strip,
             &tb,
             width_dip,
@@ -776,8 +786,8 @@ impl App {
         self.strip_h_px = height;
         self.strip_dpi = tb.dpi;
         logging::write(&format!(
-            "strip placed: x={} y=0 w={} h={} dpi={} taskbar_w={}",
-            x, width, height, tb.dpi, tb.width
+            "strip placed: x={} y={} w={} h={} dpi={} vertical={}",
+            x, y, width, height, tb.dpi, tb.vertical
         ));
     }
 
@@ -838,13 +848,26 @@ impl App {
         }
         let work = monitor.rcWork;
         let gap = (6.0 * dpi as f32 / 96.0).round() as i32;
-        let center = (strip_rect.left + strip_rect.right) / 2;
-        let x = (center - width / 2).clamp(work.left, (work.right - width).max(work.left));
-        let midpoint = work.top + (work.bottom - work.top) / 2;
-        let y = if taskbar_rect.top > midpoint {
-            taskbar_rect.top - height - gap
+        let (x, y) = if tb.vertical {
+            let center = (strip_rect.top + strip_rect.bottom) / 2;
+            let y = (center - height / 2).clamp(work.top, (work.bottom - height).max(work.top));
+            let midpoint = work.left + (work.right - work.left) / 2;
+            let x = if taskbar_rect.left > midpoint {
+                taskbar_rect.left - width - gap
+            } else {
+                taskbar_rect.right + gap
+            };
+            (x.clamp(work.left, (work.right - width).max(work.left)), y)
         } else {
-            taskbar_rect.bottom + gap
+            let center = (strip_rect.left + strip_rect.right) / 2;
+            let x = (center - width / 2).clamp(work.left, (work.right - width).max(work.left));
+            let midpoint = work.top + (work.bottom - work.top) / 2;
+            let y = if taskbar_rect.top > midpoint {
+                taskbar_rect.top - height - gap
+            } else {
+                taskbar_rect.bottom + gap
+            };
+            (x, y)
         };
         let needs_capture =
             self.config.style == "blur" && (!was_visible || self.backdrop.is_none());
@@ -1189,6 +1212,30 @@ impl App {
         }
     }
 
+    fn pick_accent(&mut self) {
+        let mut custom = [COLORREF(0); 16];
+        for (slot, hex) in custom.iter_mut().zip(ui::ACCENTS.iter()) {
+            *slot = ui::accent_colorref(hex);
+        }
+        let mut choice = CHOOSECOLORW {
+            lStructSize: size_of::<CHOOSECOLORW>() as u32,
+            hwndOwner: self.popup,
+            rgbResult: ui::accent_colorref(&self.config.accent),
+            lpCustColors: custom.as_mut_ptr(),
+            Flags: CC_RGBINIT | CC_FULLOPEN | CC_ANYCOLOR,
+            ..Default::default()
+        };
+        if unsafe { ChooseColorW(&mut choice) }.as_bool() {
+            let value = choice.rgbResult.0;
+            self.config.accent = format!(
+                "#{:02X}{:02X}{:02X}",
+                value & 0xFF,
+                (value >> 8) & 0xFF,
+                (value >> 16) & 0xFF
+            );
+        }
+    }
+
     fn commit_todo_dialog(&mut self) {
         if self.todo_dialog.is_none() {
             return;
@@ -1371,9 +1418,13 @@ impl App {
         unsafe {
             let _ = GetCursorPos(&mut point);
         }
-        let dx = point.x - drag.cursor_start;
+        let delta = if tb.vertical {
+            point.y - drag.cursor_start
+        } else {
+            point.x - drag.cursor_start
+        };
         let mut started = false;
-        if !drag.moved && dx.abs() > 4 {
+        if !drag.moved && delta.abs() > 4 {
             drag.moved = true;
             started = true;
         }
@@ -1387,16 +1438,21 @@ impl App {
                 self.hide_popup();
             }
         }
-        let width = self.strip_w_px.max(1);
-        let bound = tb.tray_left.unwrap_or(tb.width).max(width);
-        let x = (strip_start + dx).clamp(0, (bound - width).max(0));
+        let length = if tb.vertical {
+            self.strip_h_px.max(1)
+        } else {
+            self.strip_w_px.max(1)
+        };
+        let bound = tb.tray_bound.unwrap_or(tb.length()).max(length);
+        let start = (strip_start + delta).clamp(0, (bound - length).max(0));
+        let (x, y) = if tb.vertical { (0, start) } else { (start, 0) };
         unsafe {
             let _ = SetWindowPos(
                 self.strip,
                 HWND_TOP,
                 x,
-                0,
-                width,
+                y,
+                self.strip_w_px,
                 self.strip_h_px,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
@@ -1414,18 +1470,24 @@ impl App {
             let _ = GetWindowRect(self.strip, &mut rect);
             let _ = GetWindowRect(tb.hwnd, &mut taskbar_rect);
         }
-        let x = rect.left - taskbar_rect.left;
-        let width = (rect.right - rect.left).max(1);
-        let bound = tb.tray_left.unwrap_or(tb.width).max(width);
-        let position = if x + width / 2 <= bound / 2 {
+        let (start, length) = if tb.vertical {
+            (rect.top - taskbar_rect.top, (rect.bottom - rect.top).max(1))
+        } else {
+            (
+                rect.left - taskbar_rect.left,
+                (rect.right - rect.left).max(1),
+            )
+        };
+        let bound = tb.tray_bound.unwrap_or(tb.length()).max(length);
+        let position = if start + length / 2 <= bound / 2 {
             "left"
         } else {
             "right"
         };
         let offset_px = if position == "left" {
-            x.max(0)
+            start.max(0)
         } else {
-            (bound - (x + width)).max(0)
+            (bound - (start + length)).max(0)
         };
         self.config.position = position.to_string();
         self.config.offset = (offset_px as f32 * 96.0 / tb.dpi as f32).round() as i32;
@@ -1605,9 +1667,18 @@ impl App {
             ui::PanelAction::LaunchAtStartup => {
                 self.config.launch_at_startup = !self.config.launch_at_startup;
             }
+            ui::PanelAction::AccentCustom => self.pick_accent(),
+            ui::PanelAction::StripStyleMatch => self.config.strip_style = "match".into(),
+            ui::PanelAction::StripStyleSolid => self.config.strip_style = "solid".into(),
+            ui::PanelAction::StripStylePlain => self.config.strip_style = "plain".into(),
+            ui::PanelAction::SparklinesOff => self.config.sparklines = false,
+            ui::PanelAction::SparklinesOn => self.config.sparklines = true,
             ui::PanelAction::FontCompact => self.config.font_scale = 0.9,
             ui::PanelAction::FontNormal => self.config.font_scale = 1.0,
             ui::PanelAction::FontLarge => self.config.font_scale = 1.15,
+            ui::PanelAction::StripFontCompact => self.config.strip_font_scale = 0.9,
+            ui::PanelAction::StripFontNormal => self.config.strip_font_scale = 1.0,
+            ui::PanelAction::StripFontLarge => self.config.strip_font_scale = 1.15,
             ui::PanelAction::PomodoroToggle => self.pomodoro.toggle(),
             ui::PanelAction::PomodoroReset => self.pomodoro.reset(&self.config),
             ui::PanelAction::PomodoroSkip => self.pomodoro.skip(&self.config),

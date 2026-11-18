@@ -25,6 +25,43 @@ use windows::Win32::System::WindowsProgramming::{
 use crate::disk;
 use crate::gpu::{GpuInfo, GpuSampler};
 
+pub const HISTORY_LEN: usize = 60;
+
+#[derive(Clone)]
+pub struct History {
+    samples: [f32; HISTORY_LEN],
+    next: usize,
+    filled: usize,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        Self {
+            samples: [0.0; HISTORY_LEN],
+            next: 0,
+            filled: 0,
+        }
+    }
+}
+
+impl History {
+    pub fn push(&mut self, value: f32) {
+        if !value.is_finite() {
+            return;
+        }
+        self.samples[self.next] = value.clamp(0.0, 1.0);
+        self.next = (self.next + 1) % HISTORY_LEN;
+        self.filled = (self.filled + 1).min(HISTORY_LEN);
+    }
+
+    pub fn recent(&self) -> Vec<f32> {
+        let start = (self.next + HISTORY_LEN - self.filled) % HISTORY_LEN;
+        (0..self.filled)
+            .map(|i| self.samples[(start + i) % HISTORY_LEN])
+            .collect()
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Snapshot {
     pub cpu_load: f32,
@@ -38,6 +75,10 @@ pub struct Snapshot {
     pub cores: Vec<f32>,
     pub gpus: Vec<GpuInfo>,
     pub disk_temp: Option<f32>,
+    pub cpu_history: Vec<f32>,
+    pub mem_history: Vec<f32>,
+    pub disk_history: Vec<f32>,
+    pub net_history: Vec<f32>,
 }
 
 pub struct Sampler {
@@ -47,6 +88,11 @@ pub struct Sampler {
     gpu: GpuSampler,
     network: Option<NetworkCounters>,
     snapshot: Snapshot,
+    cpu_history: History,
+    mem_history: History,
+    disk_history: History,
+    net_history: History,
+    net_peak: f64,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -65,6 +111,11 @@ impl Sampler {
             gpu: GpuSampler::new(),
             network: NetworkCounters::new(),
             snapshot: Snapshot::default(),
+            cpu_history: History::default(),
+            mem_history: History::default(),
+            disk_history: History::default(),
+            net_history: History::default(),
+            net_peak: 1.0,
         }
     }
 
@@ -114,6 +165,27 @@ impl Sampler {
             .and_then(NetworkCounters::read)
             .unwrap_or((0.0, 0.0));
 
+        let mem_pct = if mem_total > 0 {
+            mem_used as f32 / mem_total as f32
+        } else {
+            0.0
+        };
+        let disk_pct = if disk_total > 0 {
+            disk_used as f32 / disk_total as f32
+        } else {
+            0.0
+        };
+        self.cpu_history.push(cpu_load / 100.0);
+        self.mem_history.push(mem_pct);
+        self.disk_history.push(disk_pct);
+        self.net_peak = self.net_peak.max(net_down_bps + net_up_bps);
+        let net_total = net_down_bps + net_up_bps;
+        self.net_history.push(if self.net_peak > 0.0 {
+            (net_total / self.net_peak) as f32
+        } else {
+            0.0
+        });
+
         self.snapshot = Snapshot {
             cpu_load,
             cpu_temp,
@@ -126,6 +198,10 @@ impl Sampler {
             cores,
             gpus,
             disk_temp,
+            cpu_history: self.cpu_history.recent(),
+            mem_history: self.mem_history.recent(),
+            disk_history: self.disk_history.recent(),
+            net_history: self.net_history.recent(),
         };
         self.snapshot.clone()
     }

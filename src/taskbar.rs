@@ -38,8 +38,33 @@ pub struct Taskbar {
     pub width: i32,
     pub height: i32,
     pub dpi: u32,
-    pub tray_left: Option<i32>,
+    /// A bar that is taller than it is wide stacks its widgets vertically.
+    pub vertical: bool,
+    /// Where the notification area starts, measured along the bar. Placement
+    /// never crosses it. Secondary bars have no tray, so this is `None` and the
+    /// whole bar is usable.
+    pub tray_bound: Option<i32>,
     tray: Option<HWND>,
+}
+
+impl Taskbar {
+    /// Size of the bar along the axis its widgets are laid out on.
+    pub fn length(&self) -> i32 {
+        if self.vertical {
+            self.height
+        } else {
+            self.width
+        }
+    }
+
+    /// Thickness across that axis, which is what a strip cell can span.
+    pub fn thickness(&self) -> i32 {
+        if self.vertical {
+            self.width
+        } else {
+            self.height
+        }
+    }
 }
 
 struct Entry {
@@ -156,13 +181,19 @@ pub fn find(monitor: u32) -> Option<Taskbar> {
             dpi => dpi,
         };
         let tray = FindWindowExW(hwnd, HWND::default(), w!("TrayNotifyWnd"), PCWSTR::null()).ok();
-        let tray_left = tray.and_then(|tray| child_rect(hwnd, tray).map(|r| r.left));
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        let vertical = height > width;
+        let tray_bound = tray.and_then(|tray| {
+            child_rect(hwnd, tray).map(|rect| if vertical { rect.top } else { rect.left })
+        });
         Some(Taskbar {
             hwnd,
-            width: rect.right - rect.left,
-            height: rect.bottom - rect.top,
+            width,
+            height,
             dpi,
-            tray_left,
+            vertical,
+            tray_bound,
             tray,
         })
     }
@@ -220,62 +251,70 @@ pub fn attach(strip: HWND, taskbar: &Taskbar) -> bool {
     }
 }
 
+/// Positions the strip along the bar and returns its pixel rect. A horizontal
+/// bar lays the strip out along X; a vertical bar along Y, which is why every
+/// measurement here goes through [`Taskbar::length`] and
+/// [`Taskbar::thickness`] rather than naming an axis.
 pub fn place(
     strip: HWND,
     taskbar: &Taskbar,
-    width_dip: i32,
+    length_dip: i32,
     position: &str,
     offset_dip: i32,
 ) -> (i32, i32, i32, i32) {
     let scale = taskbar.dpi as f32 / 96.0;
-    let width = ((width_dip as f32) * scale).round() as i32;
+    let length = ((length_dip as f32) * scale).round() as i32;
     let offset = ((offset_dip as f32) * scale).round() as i32;
     let gap = ((6.0 * scale).round() as i32).max(2);
-    let bound = taskbar.tray_left.unwrap_or(taskbar.width);
+    let bound = taskbar.tray_bound.unwrap_or(taskbar.length());
     let occupied = inflate(occupied_ranges(taskbar, strip), gap, 0, bound.max(0));
     let free = free_gaps(&occupied, bound.max(0));
 
-    let x = if position == "left" {
+    let start = if position == "left" {
         let desired = offset.max(0);
         free.iter()
-            .filter_map(|&(left, right)| {
-                let candidate = left.max(desired);
-                (candidate + width <= right).then_some(candidate)
+            .filter_map(|&(low, high)| {
+                let candidate = low.max(desired);
+                (candidate + length <= high).then_some(candidate)
             })
             .min()
             .unwrap_or(desired)
     } else {
         let desired_right = (bound - offset).min(bound);
         free.iter()
-            .filter_map(|&(left, right)| {
-                let candidate = right.min(desired_right) - width;
-                (candidate >= left).then_some(candidate)
+            .filter_map(|&(low, high)| {
+                let candidate = high.min(desired_right) - length;
+                (candidate >= low).then_some(candidate)
             })
             .max()
-            .unwrap_or(bound - width - offset)
+            .unwrap_or(bound - length - offset)
     };
 
-    let x = x.clamp(0, (bound - width).max(0));
-    let height = taskbar.height;
+    let start = start.clamp(0, (bound - length).max(0));
+    let thickness = taskbar.thickness();
+    let (x, y, width, height) = if taskbar.vertical {
+        (0, start, thickness, length)
+    } else {
+        (start, 0, length, thickness)
+    };
     unsafe {
         let _ = SetWindowPos(
             strip,
             HWND_TOP,
             x,
-            0,
+            y,
             width,
             height,
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
         );
     }
-    (x, 0, width, height)
+    (x, y, width, height)
 }
 
 struct OccupancyContext {
-    taskbar: HWND,
+    taskbar: Taskbar,
     exclude: HWND,
     tray: Option<HWND>,
-    taskbar_width: i32,
     ranges: Vec<(i32, i32)>,
 }
 
@@ -287,23 +326,27 @@ unsafe extern "system" fn occupancy_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     if !unsafe { IsWindowVisible(hwnd).as_bool() } {
         return BOOL(1);
     }
-    let Some(rect) = child_rect(context.taskbar, hwnd) else {
+    let Some(rect) = child_rect(context.taskbar.hwnd, hwnd) else {
         return BOOL(1);
     };
-    let width = rect.right - rect.left;
-    if width <= 0 || width >= context.taskbar_width - 4 {
+    let (low, high) = if context.taskbar.vertical {
+        (rect.top, rect.bottom)
+    } else {
+        (rect.left, rect.right)
+    };
+    let span = high - low;
+    if span <= 0 || span >= context.taskbar.length() - 4 {
         return BOOL(1);
     }
-    context.ranges.push((rect.left, rect.right));
+    context.ranges.push((low, high));
     BOOL(1)
 }
 
 fn occupied_ranges(taskbar: &Taskbar, strip: HWND) -> Vec<(i32, i32)> {
     let mut context = OccupancyContext {
-        taskbar: taskbar.hwnd,
+        taskbar: *taskbar,
         exclude: strip,
         tray: taskbar.tray,
-        taskbar_width: taskbar.width,
         ranges: Vec::new(),
     };
     unsafe {

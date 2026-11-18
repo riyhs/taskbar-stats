@@ -6,7 +6,9 @@ use windows::core::{w, Result};
 use windows::Foundation::Numerics::Matrix3x2;
 use windows::Win32::Foundation::{COLORREF, HANDLE, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
+    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
+    D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_PIXEL_FORMAT,
+    D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Brush, ID2D1DCRenderTarget, ID2D1Factory,
@@ -230,6 +232,84 @@ impl Renderer {
         unsafe {
             if let Ok(brush) = self.brush(color) {
                 self.target.FillRoundedRectangle(&rounded, &brush);
+            }
+        }
+    }
+
+    pub fn fill_area(&self, points: &[(f32, f32)], baseline: f32, color: D2D1_COLOR_F) {
+        if points.len() < 2 {
+            return;
+        }
+        let geometry = unsafe { self.factory.CreatePathGeometry() };
+        let Ok(geometry) = geometry else {
+            return;
+        };
+        let sink = unsafe { geometry.Open() };
+        let Ok(sink) = sink else {
+            return;
+        };
+        unsafe {
+            sink.BeginFigure(
+                D2D_POINT_2F {
+                    x: points[0].0,
+                    y: points[0].1,
+                },
+                D2D1_FIGURE_BEGIN_FILLED,
+            );
+            for (x, y) in points.iter().skip(1) {
+                sink.AddLine(D2D_POINT_2F { x: *x, y: *y });
+            }
+            sink.AddLine(D2D_POINT_2F {
+                x: points[points.len() - 1].0,
+                y: baseline,
+            });
+            sink.AddLine(D2D_POINT_2F {
+                x: points[0].0,
+                y: baseline,
+            });
+            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+            let _ = sink.Close();
+        }
+        if let Ok(brush) = self.brush(color) {
+            unsafe {
+                self.target
+                    .FillGeometry(&geometry, &brush, None::<&ID2D1Brush>);
+            }
+        }
+    }
+
+    pub fn stroke_path(&self, points: &[(f32, f32)], color: D2D1_COLOR_F, width: f32) {
+        if points.len() < 2 {
+            return;
+        }
+        let Ok(geometry) = (unsafe { self.factory.CreatePathGeometry() }) else {
+            return;
+        };
+        let Ok(sink) = (unsafe { geometry.Open() }) else {
+            return;
+        };
+        unsafe {
+            sink.BeginFigure(
+                D2D_POINT_2F {
+                    x: points[0].0,
+                    y: points[0].1,
+                },
+                D2D1_FIGURE_BEGIN_HOLLOW,
+            );
+            for (x, y) in points.iter().skip(1) {
+                sink.AddLine(D2D_POINT_2F { x: *x, y: *y });
+            }
+            sink.EndFigure(D2D1_FIGURE_END_OPEN);
+            let _ = sink.Close();
+        }
+        if let Ok(brush) = self.brush(color) {
+            unsafe {
+                self.target.DrawGeometry(
+                    &geometry,
+                    &brush,
+                    width,
+                    None::<&windows::Win32::Graphics::Direct2D::ID2D1StrokeStyle>,
+                );
             }
         }
     }

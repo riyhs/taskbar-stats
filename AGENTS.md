@@ -60,7 +60,7 @@ The app exits through the strip context menu: right-click the strip and choose
 | `src/taskbar.rs` | Find `Shell_TrayWnd`, attach the strip, place it around the tray |
 | `src/render.rs` | Direct2D/DirectWrite renderer, DIB, bitmap backdrops, layered-window presentation |
 | `src/capture.rs` | Desktop capture, box blur, and rounded-corner mask for the Blur style |
-| `src/ui.rs` | Strip and five-tab panel composition, Pomodoro/Todo views, Settings/Appearance controls, hit testing, palette, text formatting |
+| `src/ui.rs` | Strip and five-tab panel composition, Pomodoro/Todo views, Settings/Appearance controls, hit testing, palette, sparkline geometry, text formatting |
 | `src/metrics.rs` | Sampling loop and snapshot data, including CPU, memory, disk, and network counters |
 | `src/pomodoro.rs` | Pomodoro phase state, countdown, and completion events |
 | `src/gpu.rs` | DXGI adapter enumeration, GPU load and temperature providers |
@@ -84,8 +84,9 @@ The app exits through the strip context menu: right-click the strip and choose
    or `Shell_SecondaryTrayWnd`; do not replace it with a floating top-level
    window. Never assume `FindWindowW("Shell_TrayWnd")` is the selected display;
    resolve it through `taskbar::find(config.monitor)`.
-2. Keep the detail panel above the taskbar on a bottom taskbar and inside the
-   monitor work area. It must never push or overlay content below the taskbar.
+2. Keep the detail panel above the taskbar on a bottom taskbar, beside it on a
+   vertical one, and always inside the monitor work area. It must never push or
+   overlay content below or across the taskbar.
 3. Do not introduce a service, kernel driver, DLL injection, or elevation
    requirement. All current sensors are user-mode.
 4. Never fabricate a sensor value. Missing CPU, GPU, or disk temperature must
@@ -100,8 +101,10 @@ The app exits through the strip context menu: right-click the strip and choose
 8. Keep the strip width deterministic from the configured widgets and visible
    GPU count so placement remains stable.
 9. Placement must avoid visible taskbar siblings. Use the occupancy logic in
-   `src/taskbar.rs`; keep the 6 px collision gap and do not fall back to
-   `tray_left` alone.
+   `src/taskbar.rs`; keep the 6 px collision gap and do not fall back to the
+   tray bound alone. Everything measured along the bar goes through
+   `Taskbar::length()`/`thickness()` so vertical bars work: do not assume a
+   horizontal bar or read `rect.left`/`rect.right` directly.
 10. The Settings and Appearance tabs are the supported configuration path.
     Every control change must validate, save, and apply immediately; do not
     reintroduce a manual-edit-only workflow.
@@ -140,8 +143,11 @@ The app exits through the strip context menu: right-click the strip and choose
 - Settings and Appearance controls use the 24 px chip base geometry, 6 px
   radius, soft card border, card fill, 2 px accent selected underline, and
   primary semibold selected text.
+- Keep `strip_style` independent of `style`. `plain` must draw no background,
+  border, or bars so the strip can sit beside native tray items; `match` must
+  keep the panel surface. Never merge the strip and panel settings.
 - Keep the Overview panel at 400 × 322 DIP, Pomodoro at 400 × 352 DIP, Todo at
-  400 × 290 DIP, Settings at 400 × 352 DIP, and Appearance at 400 × 208 DIP at
+  400 × 290 DIP, Settings at 400 × 352 DIP, and Appearance at 400 × 256 DIP at
   Normal text size; `Layout` derives every height, row step, chip height, and
   card height from `font_scale`, so drawing and hit testing must share it.
   Every page uses the shared `PAD` and `LABEL_H` tokens so the top and bottom

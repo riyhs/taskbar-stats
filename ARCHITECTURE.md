@@ -396,8 +396,8 @@ runs.
 
 ## Limitations
 
-- Primary horizontal taskbar only; vertical and secondary-taskbar placement are
-  not implemented.
+- Horizontal and vertical bars are supported, but a vertical bar is detected
+  purely from its shape, so a very tall horizontal bar would be misread.
 - Free-space detection relies on visible taskbar child rectangles; UIA-only
   widgets and full-screen overlays are not detected.
 - The strip overlays the taskbar and does not reserve button space.

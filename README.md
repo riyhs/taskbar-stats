@@ -192,8 +192,10 @@ The Settings tab controls placement and behavior:
 
 - theme: System, Dark, Light, AMOLED, Slate, Sand
 - style: Solid, Blur, Clear
-- accent color
-- text size: Compact, Normal, Large
+- accent color: six presets, or any colour through the Windows colour picker
+- panel text size and strip text size, set independently
+- strip surface: Match the panel, Solid, or Plain (text only, no background)
+- graphs: trailing history on every Overview card
 
 ## Configuration
 
@@ -215,7 +217,10 @@ the Settings and Appearance tabs; the file is shown here for reference.
 | `mem_mode` | `gb` or `percent` |
 | `disk_mode` | `gb` or `percent` |
 | `gpu_visible` | Adapter names to show; empty means all detected adapters |
-| `font_scale` | Text scale, normally `0.9`, `1.0`, or `1.15` |
+| `font_scale` | Panel text scale, normally `0.9`, `1.0`, or `1.15` |
+| `strip_font_scale` | Strip text scale, independent of the panel |
+| `strip_style` | `match` follows the panel style, `solid` is opaque, `plain` draws text only |
+| `sparklines` | Draw a trailing graph on each Overview card |
 | `launch_at_startup` | Mirror of the Start with Windows toggle |
 | `pomodoro_focus_min` | Focus duration in minutes |
 | `pomodoro_break_min` | Break duration in minutes |
@@ -288,8 +293,8 @@ cargo test --all-targets
 - **CPU core bars are intentionally absent** from the Overview. Per-core load was
   too small to read at panel scale; the CPU card shows overall load, temperature,
   and thread count instead.
-- The app targets horizontal taskbars on the primary or any secondary monitor.
-  Vertical taskbars are not supported yet.
+- The app follows the primary or any secondary taskbar, horizontal or vertical.
+  A vertical bar stacks the strip cells top to bottom.
 - The executable is currently unsigned. Builds are reproducible from source, and
   release artifacts include SHA-256 checksums.
 
